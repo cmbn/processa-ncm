@@ -209,4 +209,29 @@ if st.button("🚀 Processar Dados"):
                 if not sucesso_gerado and (df_erros is None or df_erros.empty):
                     st.warning("O processamento não retornou dados válidos, mas também não listou erros específicos.")
 
-                # --- EXIBIÇÃO: PARTE 2 - ERROS
+                # --- EXIBIÇÃO: PARTE 2 - ERROS (Fica abaixo) ---
+                
+                if df_erros is not None and not df_erros.empty:
+                    st.divider() # Linha visual para separar o sucesso dos erros
+                    
+                    st.warning(f"⚠️ Relatório de Exceções: {len(df_erros)} itens não puderam ser processados.")
+                    st.markdown("Os itens abaixo não foram incluídos no resultado final pois não tiveram correspondência no CATMAT ou NCM.")
+                    
+                    with st.expander("Clique para visualizar a lista de itens não encontrados"):
+                        st.dataframe(df_erros.set_index('ITEM') if 'ITEM' in df_erros.columns else df_erros)
+                    
+                    csv_erros = df_erros.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                    st.download_button(
+                        label="📥 Baixar Relatório de Erros (.csv)",
+                        data=csv_erros,
+                        file_name="relatorio_erros.csv",
+                        mime="text/csv",
+                        help="Baixe este arquivo para analisar os itens que falharam."
+                    )
+
+            except Exception as e:
+                st.error(f"Erro crítico durante o processamento: {e}")
+        else:
+            st.error("❌ Faltam os arquivos de referência (CATMAT ou Anexo). Verifique a barra lateral.")
+    else:
+        st.warning("⚠️ Por favor, faça o upload de um arquivo ou digite os códigos antes de processar.")
