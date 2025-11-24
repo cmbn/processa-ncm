@@ -1,0 +1,166 @@
+﻿NCM;Regra de origem;Margem normal;Regra de qualificação;Margem adicional
+85044010;código CFI;10%;;
+85076000;código CFI;10%;;
+8601;código CFI;10%;;
+8602;código CFI;10%;;
+8603;código CFI;10%;;
+86069;código CFI;10%;;
+86071110;código CFI;10%;;
+860400;código CFI;10%;;
+860500;código CFI;10%;;
+86080012;código CFI;10%;;
+8702;código CFI;10%;;
+87079090;código CFI;10%;;
+87060010;código CFI;10%;;
+87060090;código CFI;10%;;
+90328930;código CFI;10%;;
+8429;código CFI;10%;;
+8430;código CFI;10%;;
+847910;código CFI;10%;;
+847982;código CFI;10%;;
+85013120;código CFI-A;10%;;
+85013220;código CFI-A;10%;;
+85013320;código CFI-A;10%;;
+85013420;código CFI-A;10%;;
+85017;código CFI-A;10%;;
+85018000;código CFI-A;10%;;
+85044090;código CFI;10%;;
+85354090;código CFI;10%;;
+85363090;código CFI;10%;;
+85371090;código CFI;10%;;
+85372090;código CFI;10%;;
+85414300;código CFI;10%;;
+8701;código CFI;10%;;
+24049200;MedNac;5%;MedIFANac;10%
+25010090;MedNac;5%;MedIFANac;10%
+29362113;MedNac;5%;MedIFANac;10%
+29362931;MedNac;5%;MedIFANac;10%
+30021211;MedNac;5%;MedIFANac;10%
+30021212;MedNac;5%;MedIFANac;10%
+30021215;MedNac;5%;MedIFANac;10%
+30021219;MedNac;5%;MedIFANac;10%
+30021239;MedNac;5%;MedIFANac;10%
+300215;MedNac;5%;MedIFANac;10%
+30024121;MedNac;5%;MedIFANac;10%
+30024122;MedNac;5%;MedIFANac;10%
+30024123;MedNac;5%;MedIFANac;10%
+30024125;MedNac;5%;MedIFANac;10%
+30024126;MedNac;5%;MedIFANac;10%
+30024127;MedNac;5%;MedIFANac;10%
+30024129;MedNac;5%;MedIFANac;10%
+30024210;MedNac;5%;MedIFANac;10%
+30024992;MedNac;5%;MedIFANac;10%
+30041012;MedNac;5%;MedIFANac;10%
+30041014;MedNac;5%;MedIFANac;10%
+30042029;MedNac;5%;MedIFANac;10%
+30042032;MedNac;5%;MedIFANac;10%
+30042049;MedNac;5%;MedIFANac;10%
+30042059;MedNac;5%;MedIFANac;10%
+30042069;MedNac;5%;MedIFANac;10%
+30042099;MedNac;5%;MedIFANac;10%
+30043100;MedNac;5%;MedIFANac;10%
+30043220;MedNac;5%;MedIFANac;10%
+30043290;MedNac;5%;MedIFANac;10%
+30043929;MedNac;5%;MedIFANac;10%
+30043939;MedNac;5%;MedIFANac;10%
+30043999;MedNac;5%;MedIFANac;10%
+30044990;MedNac;5%;MedIFANac;10%
+30045010;MedNac;5%;MedIFANac;10%
+30046000;MedNac;5%;MedIFANac;10%
+30049014;MedNac;5%;MedIFANac;10%
+30049019;MedNac;5%;MedIFANac;10%
+30049021;MedNac;5%;MedIFANac;10%
+30049024;MedNac;5%;MedIFANac;10%
+30049029;MedNac;5%;MedIFANac;10%
+30049029;MedNac;5%;MedIFANac;10%
+30049035;MedNac;5%;MedIFANac;10%
+30049036;MedNac;5%;MedIFANac;10%
+30049039;MedNac;5%;MedIFANac;10%
+30049041;MedNac;5%;MedIFANac;10%
+30049042;MedNac;5%;MedIFANac;10%
+30049045;MedNac;5%;MedIFANac;10%
+30049049;MedNac;5%;MedIFANac;10%
+30049059;MedNac;5%;MedIFANac;10%
+30049063;MedNac;5%;MedIFANac;10%
+30049065;MedNac;5%;MedIFANac;10%
+30049067;MedNac;5%;MedIFANac;10%
+30049068;MedNac;5%;MedIFANac;10%
+30049069;MedNac;5%;MedIFANac;10%
+30049072;MedNac;5%;MedIFANac;10%
+30049076;MedNac;5%;MedIFANac;10%
+30049078;MedNac;5%;MedIFANac;10%
+30049079;MedNac;5%;MedIFANac;10%
+30049095;MedNac;5%;MedIFANac;10%
+30049099;MedNac;5%;MedIFANac;10%
+84099140;código CFI ou PPB;10%;portaria DesIn;10%
+8423;código CFI ou PPB;10%;portaria DesIn;10%
+8443;código CFI ou PPB;10%;portaria DesIn;10%
+84702;código CFI ou PPB;10%;portaria DesIn;10%
+84705010;código CFI ou PPB;10%;portaria DesIn;10%
+8471;código CFI ou PPB;10%;portaria DesIn;10%
+847290;código CFI ou PPB;10%;portaria DesIn;10%
+8473;código CFI ou PPB;10%;portaria DesIn;10%
+84795000;código CFI ou PPB;10%;portaria DesIn;10%
+84798999;código CFI ou PPB;10%;portaria DesIn;10%
+84799090;código CFI ou PPB;10%;portaria DesIn;10%
+8501101;código CFI ou PPB;10%;portaria DesIn;10%
+850440;código CFI ou PPB;10%;portaria DesIn;10%
+850490;código CFI ou PPB;10%;portaria DesIn;10%
+8507;código CFI ou PPB;10%;portaria DesIn;10%
+85118030;código CFI ou PPB;10%;portaria DesIn;10%
+85123000;código CFI ou PPB;10%;portaria DesIn;10%
+8517;código CFI ou PPB;10%;portaria DesIn;10%
+8519;código CFI ou PPB;10%;portaria DesIn;10%
+8521;código CFI ou PPB;10%;portaria DesIn;10%
+8522;código CFI ou PPB;10%;portaria DesIn;10%
+8523;código CFI ou PPB;10%;portaria DesIn;10%
+8525;código CFI ou PPB;10%;portaria DesIn;10%
+8526;código CFI ou PPB;10%;portaria DesIn;10%
+8527;código CFI ou PPB;10%;portaria DesIn;10%
+8528;código CFI ou PPB;10%;portaria DesIn;10%
+8529;código CFI ou PPB;10%;portaria DesIn;10%
+85301010;código CFI ou PPB;10%;portaria DesIn;10%
+85308010;código CFI ou PPB;10%;portaria DesIn;10%
+8531;código CFI ou PPB;10%;portaria DesIn;10%
+8532211;código CFI ou PPB;10%;portaria DesIn;10%
+85322310;código CFI ou PPB;10%;portaria DesIn;10%
+85322410;código CFI ou PPB;10%;portaria DesIn;10%
+85322510;código CFI ou PPB;10%;portaria DesIn;10%
+85322910;código CFI ou PPB;10%;portaria DesIn;10%
+85323010;código CFI ou PPB;10%;portaria DesIn;10%
+85332120;código CFI ou PPB;10%;portaria DesIn;10%
+853630;código CFI ou PPB;10%;portaria DesIn;10%
+85364;código CFI ou PPB;10%;portaria DesIn;10%
+853650;código CFI ou PPB;10%;portaria DesIn;10%
+85369030;código CFI ou PPB;10%;portaria DesIn;10%
+85369040;código CFI ou PPB;10%;portaria DesIn;10%
+8537101;código CFI ou PPB;10%;portaria DesIn;10%
+85371020;código CFI ou PPB;10%;portaria DesIn;10%
+85371030;código CFI ou PPB;10%;portaria DesIn;10%
+85371090;código CFI ou PPB;10%;portaria DesIn;10%
+85389010;código CFI ou PPB;10%;portaria DesIn;10%
+85395;código CFI ou PPB;10%;portaria DesIn;10%
+8541;código CFI ou PPB;10%;portaria DesIn;10%
+8542;código CFI ou PPB;10%;portaria DesIn;10%
+8543;código CFI ou PPB;10%;portaria DesIn;10%
+854470;código CFI ou PPB;10%;portaria DesIn;10%
+853400;código CFI ou PPB;10%;portaria DesIn;10%
+8540;código CFI ou PPB;10%;portaria DesIn;10%
+900110;código CFI ou PPB;10%;portaria DesIn;10%
+9006;código CFI ou PPB;10%;portaria DesIn;10%
+9007;código CFI ou PPB;10%;portaria DesIn;10%
+9008;código CFI ou PPB;10%;portaria DesIn;10%
+90138010;código CFI ou PPB;10%;portaria DesIn;10%
+90221910;código CFI ou PPB;10%;portaria DesIn;10%
+90221991;código CFI ou PPB;10%;portaria DesIn;10%
+90221999;código CFI ou PPB;10%;portaria DesIn;10%
+90229090;código CFI ou PPB;10%;portaria DesIn;10%
+90251990;código CFI ou PPB;10%;portaria DesIn;10%
+9026;código CFI ou PPB;10%;portaria DesIn;10%
+9027;código CFI ou PPB;10%;portaria DesIn;10%
+9028;código CFI ou PPB;10%;portaria DesIn;10%
+9029;código CFI ou PPB;10%;portaria DesIn;10%
+9030;código CFI ou PPB;10%;portaria DesIn;10%
+9031;código CFI ou PPB;10%;portaria DesIn;10%
+9032;código CFI ou PPB;10%;portaria DesIn;10%
+91;código CFI ou PPB;10%;portaria DesIn;10%
