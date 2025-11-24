@@ -7,7 +7,8 @@ st.set_page_config(page_title="Processador NCM", layout="wide")
 
 st.title("Processador de Arquivos NCM/CATMAT")
 st.markdown("""
-Este sistema realiza a junção de arquivos CSV para processamento de NCM e CATMAT.
+Este sistema processa arquivos CSV para vincular NCMs baseados no CATMAT.
+Agora com **Relatório de Erros** para itens não identificados.
 """)
 
 # --- FUNÇÕES DE PROCESSAMENTO ---
@@ -31,32 +32,73 @@ def carregar_arquivo_referencia(nome_base, uploader_label):
         return None
 
 def etapa1_unir_por_catmat(df1, df2):
+    """
+    Realiza a junção e separa sucessos de erros.
+    Retorna: (df_sucesso, df_erros)
+    """
     st.info("--- Iniciando Etapa 1: Junção por CATMAT ---")
     
+    # Verifica colunas essenciais
     if 'CATMAT' not in df1.columns or 'Código do Item' not in df2.columns:
         st.error(f"Erro na Etapa 1: Colunas não encontradas. Seu arquivo tem: {list(df1.columns)}")
-        return None
+        return None, None
 
+    # Padronização para evitar erros de texto
     df1['CATMAT'] = df1['CATMAT'].astype(str).str.strip()
     df2['Código do Item'] = df2['Código do Item'].astype(str).str.strip()
 
-    df_merged = pd.merge(df1, df2, left_on='CATMAT', right_on='Código do Item', how='inner')
-    st.write(f"Correspondências encontradas: {len(df_merged)}")
-
-    if 'Código NCM' not in df_merged.columns:
-         st.error("Erro: Coluna 'Código NCM' perdida após junção.")
-         return None
-
-    df_filtrado = df_merged[
-        df_merged['Código NCM'].notna() &
-        (df_merged['Código NCM'] != '') &
-        (df_merged['Código NCM'].str.strip() != '-')
-    ].copy()
+    # --- MUDANÇA: Usamos 'left' join com indicator=True para achar o que faltou ---
+    df_merged = pd.merge(df1, df2, left_on='CATMAT', right_on='Código do Item', how='left', indicator=True)
     
-    colunas_desejadas = ['ITEM', 'Descrição do Item', 'CATMAT', 'Código NCM']
-    cols_existentes = [c for c in colunas_desejadas if c in df_filtrado.columns]
+    # 1. Identificar CATMATs não encontrados
+    mask_nao_encontrado = df_merged['_merge'] == 'left_only'
+    df_erros_catmat = df_merged[mask_nao_encontrado].copy()
+    df_erros_catmat['Motivo_Erro'] = 'CATMAT não encontrado na base de referência'
+
+    # 2. Filtrar os encontrados para verificar NCM
+    df_encontrados = df_merged[df_merged['_merge'] == 'both'].copy()
     
-    return df_filtrado[cols_existentes]
+    # Verifica validade do NCM (Não nulo, não vazio, não apenas traço)
+    if 'Código NCM' in df_encontrados.columns:
+        mask_ncm_valido = (
+            df_encontrados['Código NCM'].notna() & 
+            (df_encontrados['Código NCM'] != '') & 
+            (df_encontrados['Código NCM'].str.strip() != '-')
+        )
+        
+        df_sucesso = df_encontrados[mask_ncm_valido].copy()
+        
+        df_erros_ncm = df_encontrados[~mask_ncm_valido].copy()
+        df_erros_ncm['Motivo_Erro'] = 'NCM inválido ou ausente na referência'
+    else:
+        # Caso raro onde a coluna sumiu
+        df_sucesso = pd.DataFrame()
+        df_erros_ncm = df_encontrados.copy()
+        df_erros_ncm['Motivo_Erro'] = 'Coluna Código NCM inexistente'
+
+    # Consolidar Erros
+    df_erros_total = pd.concat([df_erros_catmat, df_erros_ncm])
+    
+    # Selecionar colunas para o relatório de erros
+    colunas_erro = ['ITEM', 'CATMAT', 'Motivo_Erro']
+    # Adiciona Descrição se existir, para ajudar o usuário
+    if 'Descrição do Item' in df_merged.columns:
+        colunas_erro.insert(2, 'Descrição do Item')
+    elif 'ESPECIFICAÇÃO' in df_merged.columns: # Caso use outro nome
+        colunas_erro.insert(2, 'ESPECIFICAÇÃO')
+
+    # Garante que só pega colunas que existem
+    cols_finais_erro = [c for c in colunas_erro if c in df_erros_total.columns]
+    df_erros_final = df_erros_total[cols_finais_erro]
+
+    # Selecionar colunas para o sucesso
+    colunas_sucesso = ['ITEM', 'Descrição do Item', 'CATMAT', 'Código NCM']
+    cols_existentes_sucesso = [c for c in colunas_sucesso if c in df_sucesso.columns]
+    
+    st.write(f"Itens processados com sucesso: {len(df_sucesso)}")
+    st.write(f"Itens com erro/não encontrados: {len(df_erros_final)}")
+    
+    return df_sucesso[cols_existentes_sucesso], df_erros_final
 
 def etapa2_unir_por_ncm(df_etapa1, df3):
     st.info("--- Iniciando Etapa 2: Junção Final por NCM ---")
@@ -71,7 +113,7 @@ def etapa2_unir_por_ncm(df_etapa1, df3):
         resultado['ITEM'] = pd.to_numeric(resultado['ITEM'], errors='coerce')
         resultado = resultado.sort_values(by='ITEM')
     
-    st.success(f"Processamento concluído! Linhas finais: {len(resultado)}")
+    st.success(f"Processamento concluído! Linhas finais válidas: {len(resultado)}")
     return resultado
 
 # --- INTERFACE LATERAL (ARQUIVOS FIXOS) ---
@@ -108,67 +150,4 @@ if modo_entrada == "📁 Upload de Arquivo CSV/ZIP":
             if user_file.name.endswith('.zip'):
                 df_user = pd.read_csv(user_file, sep=';', dtype=str, encoding='utf-8', compression='zip')
             else:
-                df_user = pd.read_csv(user_file, sep=';', dtype=str, encoding='utf-8')
-        except Exception as e:
-            st.error(f"Erro ao ler arquivo: {e}")
-
-else: # Modo Digitação Manual
-    st.markdown("Digite os códigos CATMAT separados por **ponto e vírgula (;)**.")
-    texto_input = st.text_area("Exemplo: 12345; 67890; 455321", height=100)
-    
-    if texto_input:
-        lista_catmats = texto_input.split(';')
-        dados_virtuais = []
-        
-        contador_item = 1
-        for codigo in lista_catmats:
-            codigo_limpo = codigo.strip()
-            if codigo_limpo: 
-                dados_virtuais.append({
-                    'ITEM': contador_item,
-                    'CATMAT': codigo_limpo,
-                    'Descrição do Item': 'Item Inserido Manualmente' 
-                })
-                contador_item += 1
-        
-        if dados_virtuais:
-            df_user = pd.DataFrame(dados_virtuais)
-            st.info(f"Reconhecidos {len(df_user)} códigos para processamento.")
-            
-            # --- MUDANÇA AQUI: set_index('ITEM') esconde a coluna 0, 1, 2 ---
-            st.dataframe(df_user.set_index('ITEM')) 
-        else:
-            st.warning("Nenhum código válido identificado.")
-
-# --- BOTÃO DE PROCESSAMENTO ---
-
-st.divider()
-
-if st.button("🚀 Processar Dados"):
-    if df_user is not None and not df_user.empty:
-        if df_ref_catmat is not None and df_ref_anexo is not None:
-            try:
-                df_intermed = etapa1_unir_por_catmat(df_user, df_ref_catmat)
-                
-                if df_intermed is not None and not df_intermed.empty:
-                    df_final = etapa2_unir_por_ncm(df_intermed, df_ref_anexo)
-                    
-                    if df_final is not None:
-                        # Também apliquei o filtro visual no resultado final para ficar limpo
-                        st.dataframe(df_final.set_index('ITEM') if 'ITEM' in df_final.columns else df_final)
-                        
-                        csv = df_final.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
-                        st.download_button(
-                            label="📥 Baixar Resultado Final (.csv)",
-                            data=csv,
-                            file_name="resultado_processado.csv",
-                            mime="text/csv"
-                        )
-                else:
-                    st.warning("⚠️ Nenhum dos CATMATs informados foi encontrado na base de dados de referência.")
-            except Exception as e:
-                st.error(f"Erro durante o processamento: {e}")
-        else:
-            st.error("❌ Faltam os arquivos de referência (CATMAT ou Anexo). Verifique a barra lateral.")
-    else:
-        st.warning("⚠️ Por favor, faça o upload de um arquivo ou digite os códigos antes de processar.")
+                df_user = pd.read_csv(user_file, sep=';', dtype=str, encoding='utf
