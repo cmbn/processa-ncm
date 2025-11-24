@@ -17,7 +17,7 @@ def carregar_arquivo_referencia(nome_base, uploader_label):
     Procura por arquivos locais (ZIP ou CSV).
     Prioriza ZIP por ser mais leve para o GitHub.
     """
-    # 1. Tenta carregar versão ZIP (ex: 02-planilhaCatmat.zip)
+    # 1. Tenta carregar versão ZIP
     if os.path.exists(f"{nome_base}.zip"):
         return pd.read_csv(f"{nome_base}.zip", sep=';', dtype=str, encoding='utf-8', compression='zip')
     
@@ -29,7 +29,6 @@ def carregar_arquivo_referencia(nome_base, uploader_label):
     else:
         uploaded = st.sidebar.file_uploader(uploader_label, type=["csv", "zip"])
         if uploaded:
-            # Detecta se o usuário subiu zip ou csv
             if uploaded.name.endswith('.zip'):
                 return pd.read_csv(uploaded, sep=';', dtype=str, encoding='utf-8', compression='zip')
             else:
@@ -41,11 +40,11 @@ def etapa1_unir_por_catmat(df1, df2):
     
     # Verifica colunas essenciais
     if 'CATMAT' not in df1.columns or 'Código do Item' not in df2.columns:
-        st.error("Erro na Etapa 1: Colunas 'CATMAT' ou 'Código do Item' não encontradas.")
+        st.error(f"Erro na Etapa 1: Colunas não encontradas. Seu arquivo tem: {list(df1.columns)}")
         return None
 
-    df1['CATMAT'] = df1['CATMAT'].astype(str)
-    df2['Código do Item'] = df2['Código do Item'].astype(str)
+    df1['CATMAT'] = df1['CATMAT'].astype(str).str.strip()
+    df2['Código do Item'] = df2['Código do Item'].astype(str).str.strip()
 
     df_merged = pd.merge(df1, df2, left_on='CATMAT', right_on='Código do Item', how='inner')
     st.write(f"Correspondências encontradas: {len(df_merged)}")
@@ -81,11 +80,9 @@ def etapa2_unir_por_ncm(df_etapa1, df3):
     st.success(f"Processamento concluído! Linhas finais: {len(resultado)}")
     return resultado
 
-# --- INTERFACE DO USUÁRIO ---
+# --- INTERFACE LATERAL (ARQUIVOS FIXOS) ---
 
 st.sidebar.header("Arquivos de Referência")
-
-# O código agora procura por "02-planilhaCatmat" (seja .zip ou .csv)
 df_ref_catmat = carregar_arquivo_referencia("02-planilhaCatmat", "Carregar Tabela CATMAT (csv/zip)")
 df_ref_anexo = carregar_arquivo_referencia("03-anexo01", "Carregar Anexo 01 (csv/zip)")
 
@@ -100,36 +97,86 @@ if df_ref_anexo is not None:
 else:
     st.sidebar.warning("⚠️ Tabela Anexo pendente")
 
-st.header("Seu Arquivo de Dados")
-user_file = st.file_uploader("Upload Arquivo de Dados", type=["csv", "zip"])
+# --- INTERFACE PRINCIPAL ---
 
-if st.button("Processar Arquivos"):
-    if user_file and df_ref_catmat is not None and df_ref_anexo is not None:
+st.header("Entrada de Dados")
+
+# Seletor de modo de entrada
+modo_entrada = st.radio("Como você deseja inserir os dados?", 
+                        ["📁 Upload de Arquivo CSV/ZIP", "✍️ Digitar CATMATs Manualmente"])
+
+df_user = None # Variável que vai guardar os dados, seja do arquivo ou do texto
+
+if modo_entrada == "📁 Upload de Arquivo CSV/ZIP":
+    st.markdown("O arquivo deve conter colunas separadas por ponto e vírgula (;).")
+    user_file = st.file_uploader("Selecione seu arquivo", type=["csv", "zip"])
+    
+    if user_file:
         try:
-            # Lê o arquivo do usuário (também aceita zip se ele quiser subir zipado)
             if user_file.name.endswith('.zip'):
                 df_user = pd.read_csv(user_file, sep=';', dtype=str, encoding='utf-8', compression='zip')
             else:
                 df_user = pd.read_csv(user_file, sep=';', dtype=str, encoding='utf-8')
-            
-            df_intermed = etapa1_unir_por_catmat(df_user, df_ref_catmat)
-            
-            if df_intermed is not None and not df_intermed.empty:
-                df_final = etapa2_unir_por_ncm(df_intermed, df_ref_anexo)
-                
-                if df_final is not None:
-                    st.dataframe(df_final.head())
-                    csv = df_final.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
-                    st.download_button(
-                        label="📥 Baixar Resultado Final",
-                        data=csv,
-                        file_name="resultado_final_consolidado.csv",
-                        mime="text/csv"
-                    )
-            else:
-                st.warning("A Etapa 1 não gerou resultados. Verifique se os códigos CATMAT conferem.")
-                
         except Exception as e:
-            st.error(f"Erro ao processar: {e}")
+            st.error(f"Erro ao ler arquivo: {e}")
+
+else: # Modo Digitação Manual
+    st.markdown("Digite os códigos CATMAT separados por **ponto e vírgula (;)**.")
+    texto_input = st.text_area("Exemplo: 12345; 67890; 455321", height=100)
+    
+    if texto_input:
+        # Lógica para criar o "Arquivo Virtual"
+        lista_catmats = texto_input.split(';')
+        dados_virtuais = []
+        
+        contador_item = 1
+        for codigo in lista_catmats:
+            codigo_limpo = codigo.strip()
+            if codigo_limpo: # Ignora espaços vazios
+                dados_virtuais.append({
+                    'ITEM': contador_item,
+                    'CATMAT': codigo_limpo,
+                    'Descrição do Item': 'Item Inserido Manualmente' # Descrição genérica
+                })
+                contador_item += 1
+        
+        if dados_virtuais:
+            df_user = pd.DataFrame(dados_virtuais)
+            st.info(f"Reconhecidos {len(df_user)} códigos para processamento.")
+            st.dataframe(df_user.head()) # Mostra prévia do que foi entendido
+        else:
+            st.warning("Nenhum código válido identificado.")
+
+# --- BOTÃO DE PROCESSAMENTO ---
+
+st.divider()
+
+if st.button("🚀 Processar Dados"):
+    if df_user is not None and not df_user.empty:
+        if df_ref_catmat is not None and df_ref_anexo is not None:
+            try:
+                # Executa Etapa 1
+                df_intermed = etapa1_unir_por_catmat(df_user, df_ref_catmat)
+                
+                if df_intermed is not None and not df_intermed.empty:
+                    # Executa Etapa 2
+                    df_final = etapa2_unir_por_ncm(df_intermed, df_ref_anexo)
+                    
+                    if df_final is not None:
+                        st.dataframe(df_final)
+                        
+                        csv = df_final.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                        st.download_button(
+                            label="📥 Baixar Resultado Final (.csv)",
+                            data=csv,
+                            file_name="resultado_processado.csv",
+                            mime="text/csv"
+                        )
+                else:
+                    st.warning("⚠️ Nenhum dos CATMATs informados foi encontrado na base de dados de referência.")
+            except Exception as e:
+                st.error(f"Erro durante o processamento: {e}")
+        else:
+            st.error("❌ Faltam os arquivos de referência (CATMAT ou Anexo). Verifique a barra lateral.")
     else:
-        st.error("Faltam arquivos. Verifique a barra lateral.")
+        st.warning("⚠️ Por favor, faça o upload de um arquivo ou digite os códigos antes de processar.")
