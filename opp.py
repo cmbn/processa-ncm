@@ -8,7 +8,6 @@ st.set_page_config(page_title="Processador NCM", layout="wide")
 st.title("Processador de Arquivos NCM/CATMAT")
 st.markdown("""
 Este sistema processa arquivos CSV para vincular NCMs baseados no CATMAT.
-Agora com **Relatório de Erros** para itens não identificados.
 """)
 
 # --- FUNÇÕES DE PROCESSAMENTO ---
@@ -38,16 +37,14 @@ def etapa1_unir_por_catmat(df1, df2):
     """
     st.info("--- Iniciando Etapa 1: Junção por CATMAT ---")
     
-    # Verifica colunas essenciais
     if 'CATMAT' not in df1.columns or 'Código do Item' not in df2.columns:
         st.error(f"Erro na Etapa 1: Colunas não encontradas. Seu arquivo tem: {list(df1.columns)}")
         return None, None
 
-    # Padronização para evitar erros de texto
     df1['CATMAT'] = df1['CATMAT'].astype(str).str.strip()
     df2['Código do Item'] = df2['Código do Item'].astype(str).str.strip()
 
-    # --- 'left' join com indicator=True para achar o que faltou ---
+    # 'left' join com indicator=True para achar o que faltou
     df_merged = pd.merge(df1, df2, left_on='CATMAT', right_on='Código do Item', how='left', indicator=True)
     
     # 1. Identificar CATMATs não encontrados
@@ -92,8 +89,8 @@ def etapa1_unir_por_catmat(df1, df2):
     colunas_sucesso = ['ITEM', 'Descrição do Item', 'CATMAT', 'Código NCM']
     cols_existentes_sucesso = [c for c in colunas_sucesso if c in df_sucesso.columns]
     
-    st.write(f"Itens processados com sucesso: {len(df_sucesso)}")
-    st.write(f"Itens com erro/não encontrados: {len(df_erros_final)}")
+    # Logs discretos (não assustar o usuário no topo)
+    st.write(f"Processamento inicial: {len(df_sucesso)} itens válidos identificados.")
     
     return df_sucesso[cols_existentes_sucesso], df_erros_final
 
@@ -173,7 +170,6 @@ else: # Modo Digitação Manual
         if dados_virtuais:
             df_user = pd.DataFrame(dados_virtuais)
             st.info(f"Reconhecidos {len(df_user)} códigos para processamento.")
-            # Exibe a tabela usando ITEM como índice para esconder a coluna 0, 1, 2
             st.dataframe(df_user.set_index('ITEM')) 
         else:
             st.warning("Nenhum código válido identificado.")
@@ -186,31 +182,19 @@ if st.button("🚀 Processar Dados"):
     if df_user is not None and not df_user.empty:
         if df_ref_catmat is not None and df_ref_anexo is not None:
             try:
-                # --- Executa Etapa 1 (Retorna Sucessos E Erros) ---
+                # --- Executa Processamento ---
                 df_intermed, df_erros = etapa1_unir_por_catmat(df_user, df_ref_catmat)
                 
-                # --- Bloco de Erros ---
-                if df_erros is not None and not df_erros.empty:
-                    st.error(f"⚠️ Atenção: {len(df_erros)} itens não puderam ser processados.")
-                    with st.expander("Ver lista de erros"):
-                        st.dataframe(df_erros.set_index('ITEM') if 'ITEM' in df_erros.columns else df_erros)
-                    
-                    csv_erros = df_erros.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
-                    st.download_button(
-                        label="📥 Baixar Relatório de Erros (.csv)",
-                        data=csv_erros,
-                        file_name="relatorio_erros.csv",
-                        mime="text/csv",
-                        help="Baixe este arquivo para verificar quais CATMATs não foram encontrados."
-                    )
-                    st.divider()
-
-                # --- Bloco de Sucessos (Etapa 2) ---
+                # --- EXIBIÇÃO: PARTE 1 - SUCESSO (Prioridade Visual) ---
+                sucesso_gerado = False
+                
                 if df_intermed is not None and not df_intermed.empty:
                     df_final = etapa2_unir_por_ncm(df_intermed, df_ref_anexo)
                     
                     if df_final is not None:
-                        st.markdown("### ✅ Resultado Final")
+                        sucesso_gerado = True
+                        st.markdown("### ✅ Resultado Final Processado")
+                        st.markdown("Estes são os itens encontrados e prontos para uso.")
                         st.dataframe(df_final.set_index('ITEM') if 'ITEM' in df_final.columns else df_final)
                         
                         csv = df_final.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
@@ -220,15 +204,9 @@ if st.button("🚀 Processar Dados"):
                             file_name="resultado_processado.csv",
                             mime="text/csv"
                         )
-                else:
-                    if df_erros is not None and not df_erros.empty:
-                        st.warning("Todos os itens falharam na validação do CATMAT/NCM. Verifique o relatório de erros acima.")
-                    else:
-                        st.warning("Nenhum dado retornado.")
-                        
-            except Exception as e:
-                st.error(f"Erro crítico durante o processamento: {e}")
-        else:
-            st.error("❌ Faltam os arquivos de referência (CATMAT ou Anexo). Verifique a barra lateral.")
-    else:
-        st.warning("⚠️ Por favor, faça o upload de um arquivo ou digite os códigos antes de processar.")
+                
+                # Caso não tenha gerado sucesso nenhum, avisa
+                if not sucesso_gerado and (df_erros is None or df_erros.empty):
+                    st.warning("O processamento não retornou dados válidos, mas também não listou erros específicos.")
+
+                # --- EXIBIÇÃO: PARTE 2 - ERROS
