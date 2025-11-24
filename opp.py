@@ -32,8 +32,8 @@ def carregar_arquivo_referencia(nome_base, uploader_label):
 
 def etapa1_unir_por_catmat(df1, df2):
     """
-    Realiza a junção e separa sucessos de erros.
-    Retorna: (df_sucesso, df_erros)
+    Realiza a junção e separa sucessos de exceções.
+    Retorna: (df_sucesso, df_excecoes)
     """
     st.info("--- Iniciando Etapa 1: Junção por CATMAT ---")
     
@@ -49,8 +49,8 @@ def etapa1_unir_por_catmat(df1, df2):
     
     # 1. Identificar CATMATs não encontrados
     mask_nao_encontrado = df_merged['_merge'] == 'left_only'
-    df_erros_catmat = df_merged[mask_nao_encontrado].copy()
-    df_erros_catmat['Motivo_Erro'] = 'CATMAT não encontrado na base de referência'
+    df_excecoes_catmat = df_merged[mask_nao_encontrado].copy()
+    df_excecoes_catmat['Motivo_Excecao'] = 'CATMAT não encontrado na base de referência'
 
     # 2. Filtrar os encontrados para verificar NCM
     df_encontrados = df_merged[df_merged['_merge'] == 'both'].copy()
@@ -65,34 +65,34 @@ def etapa1_unir_por_catmat(df1, df2):
         
         df_sucesso = df_encontrados[mask_ncm_valido].copy()
         
-        df_erros_ncm = df_encontrados[~mask_ncm_valido].copy()
-        df_erros_ncm['Motivo_Erro'] = 'NCM inválido ou ausente na referência'
+        df_excecoes_ncm = df_encontrados[~mask_ncm_valido].copy()
+        df_excecoes_ncm['Motivo_Excecao'] = 'NCM inválido ou ausente na referência'
     else:
         df_sucesso = pd.DataFrame()
-        df_erros_ncm = df_encontrados.copy()
-        df_erros_ncm['Motivo_Erro'] = 'Coluna Código NCM inexistente'
+        df_excecoes_ncm = df_encontrados.copy()
+        df_excecoes_ncm['Motivo_Excecao'] = 'Coluna Código NCM inexistente'
 
-    # Consolidar Erros
-    df_erros_total = pd.concat([df_erros_catmat, df_erros_ncm])
+    # Consolidar Exceções
+    df_excecoes_total = pd.concat([df_excecoes_catmat, df_excecoes_ncm])
     
-    # Selecionar colunas para o relatório de erros
-    colunas_erro = ['ITEM', 'CATMAT', 'Motivo_Erro']
+    # Selecionar colunas para o relatório de exceções
+    colunas_excecao = ['ITEM', 'CATMAT', 'Motivo_Excecao']
     if 'Descrição do Item' in df_merged.columns:
-        colunas_erro.insert(2, 'Descrição do Item')
+        colunas_excecao.insert(2, 'Descrição do Item')
     elif 'ESPECIFICAÇÃO' in df_merged.columns:
-        colunas_erro.insert(2, 'ESPECIFICAÇÃO')
+        colunas_excecao.insert(2, 'ESPECIFICAÇÃO')
 
-    cols_finais_erro = [c for c in colunas_erro if c in df_erros_total.columns]
-    df_erros_final = df_erros_total[cols_finais_erro]
+    cols_finais_excecao = [c for c in colunas_excecao if c in df_excecoes_total.columns]
+    df_excecoes_final = df_excecoes_total[cols_finais_excecao]
 
     # Selecionar colunas para o sucesso
     colunas_sucesso = ['ITEM', 'Descrição do Item', 'CATMAT', 'Código NCM']
     cols_existentes_sucesso = [c for c in colunas_sucesso if c in df_sucesso.columns]
     
-    # Logs discretos (não assustar o usuário no topo)
+    # Logs discretos
     st.write(f"Processamento inicial: {len(df_sucesso)} itens válidos identificados.")
     
-    return df_sucesso[cols_existentes_sucesso], df_erros_final
+    return df_sucesso[cols_existentes_sucesso], df_excecoes_final
 
 def etapa2_unir_por_ncm(df_etapa1, df3):
     st.info("--- Iniciando Etapa 2: Junção Final por NCM ---")
@@ -183,7 +183,7 @@ if st.button("🚀 Processar Dados"):
         if df_ref_catmat is not None and df_ref_anexo is not None:
             try:
                 # --- Executa Processamento ---
-                df_intermed, df_erros = etapa1_unir_por_catmat(df_user, df_ref_catmat)
+                df_intermed, df_excecoes = etapa1_unir_por_catmat(df_user, df_ref_catmat)
                 
                 # --- EXIBIÇÃO: PARTE 1 - SUCESSO (Prioridade Visual) ---
                 sucesso_gerado = False
@@ -206,25 +206,25 @@ if st.button("🚀 Processar Dados"):
                         )
                 
                 # Caso não tenha gerado sucesso nenhum, avisa
-                if not sucesso_gerado and (df_erros is None or df_erros.empty):
-                    st.warning("O processamento não retornou dados válidos, mas também não listou erros específicos.")
+                if not sucesso_gerado and (df_excecoes is None or df_excecoes.empty):
+                    st.warning("O processamento não retornou dados válidos, mas também não listou exceções específicas.")
 
-                # --- EXIBIÇÃO: PARTE 2 - ERROS (Fica abaixo) ---
+                # --- EXIBIÇÃO: PARTE 2 - EXCEÇÕES (Fica abaixo) ---
                 
-                if df_erros is not None and not df_erros.empty:
-                    st.divider() # Linha visual para separar o sucesso dos erros
+                if df_excecoes is not None and not df_excecoes.empty:
+                    st.divider() # Linha visual para separar o sucesso das exceções
                     
-                    st.warning(f"⚠️ Relatório de Exceções: {len(df_erros)} itens não puderam ser processados.")
+                    st.warning(f"⚠️ Relatório de Exceções: {len(df_excecoes)} itens não puderam ser processados.")
                     st.markdown("Os itens abaixo não foram incluídos no resultado final pois não tiveram correspondência no CATMAT ou NCM.")
                     
-                    with st.expander("Clique para visualizar a lista de itens não encontrados"):
-                        st.dataframe(df_erros.set_index('ITEM') if 'ITEM' in df_erros.columns else df_erros)
+                    with st.expander("Clique para visualizar a lista de exceções"):
+                        st.dataframe(df_excecoes.set_index('ITEM') if 'ITEM' in df_excecoes.columns else df_excecoes)
                     
-                    csv_erros = df_erros.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                    csv_excecoes = df_excecoes.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
                     st.download_button(
-                        label="📥 Baixar Relatório de Erros (.csv)",
-                        data=csv_erros,
-                        file_name="relatorio_erros.csv",
+                        label="📥 Baixar Relatório de Exceções (.csv)",
+                        data=csv_excecoes,
+                        file_name="relatorio_excecoes.csv",
                         mime="text/csv",
                         help="Baixe este arquivo para analisar os itens que falharam."
                     )
