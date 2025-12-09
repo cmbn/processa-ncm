@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import re
-import zipfile  # <--- IMPORT NECESSÁRIO PARA A CORREÇÃO
+import zipfile
 
 # Configuração da Página
 st.set_page_config(page_title="Processador NCM", layout="wide")
@@ -98,8 +98,6 @@ def carregar_arquivo_referencia(nome_base, uploader_label):
     df = None
     
     # 1. Tenta carregar localmente
-    # Nota: passamos compression='zip' apenas para sinalizar a lógica interna, 
-    # mas a nova função detecta extensão também.
     if os.path.exists(f"{nome_base}.zip"):
         try:
             df = ler_csv_flexivel(f"{nome_base}.zip", compression='zip')
@@ -291,7 +289,8 @@ if st.button("🚀 Processar Dados"):
                     if df_final is not None and not df_final.empty:
                         sucesso_gerado = True
                         st.markdown("### ✅ Resultado Final Processado")
-                        st.dataframe(df_final.set_index('ITEM') if 'ITEM' in df_final.columns else df_final)
+                        # hide_index=True oculta a coluna de índices 0, 1, 2...
+                        st.dataframe(df_final, hide_index=True)
                         
                         csv = df_final.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
                         st.download_button(
@@ -309,7 +308,8 @@ if st.button("🚀 Processar Dados"):
                     st.warning(f"⚠️ Relatório de Exceções: {len(df_excecoes)} itens não processados.")
                     
                     with st.expander("Clique para visualizar a lista de exceções"):
-                        st.dataframe(df_excecoes)
+                        # ALTERAÇÃO: hide_index=True remove a coluna visual do índice (0, 1, 2...)
+                        st.dataframe(df_excecoes, hide_index=True)
                     
                     csv_excecoes = df_excecoes.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
                     st.download_button(
