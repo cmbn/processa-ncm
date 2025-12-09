@@ -210,6 +210,10 @@ df_ref_anexo = carregar_arquivo_referencia("03-anexo01", "Carregar Anexo 01")
 
 if df_ref_catmat is not None:
     st.sidebar.success(f"✅ CATMAT OK ({len(df_ref_catmat)} linhas)")
+    # --- ADIÇÃO DA MENSAGEM COM LINK SOLICITADA ---
+    st.sidebar.markdown(
+        "[Planilha CATMAT: última modificação 21/11/2025 17h30](https://www.gov.br/compras/pt-br/acesso-a-informacao/consulta-detalhada/planilha-catmat-catser)"
+    )
 else:
     st.sidebar.warning("⚠️ Tabela CATMAT pendente")
 
@@ -308,7 +312,7 @@ if st.button("🚀 Processar Dados"):
                     st.warning(f"⚠️ Relatório de Exceções: {len(df_excecoes)} itens não processados.")
                     
                     with st.expander("Clique para visualizar a lista de exceções"):
-                        # ALTERAÇÃO: hide_index=True remove a coluna visual do índice (0, 1, 2...)
+                        # hide_index=True remove a coluna visual do índice (0, 1, 2...)
                         st.dataframe(df_excecoes, hide_index=True)
                     
                     csv_excecoes = df_excecoes.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
