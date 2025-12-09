@@ -15,20 +15,20 @@ Este sistema processa arquivos CSV para vincular NCMs baseados no CATMAT.
 def carregar_arquivo_referencia(nome_base, uploader_label):
     """
     Procura por arquivos locais (ZIP ou CSV).
-    Prioriza ZIP por ser mais leve para o GitHub.
+    OBS: Mantido sep=';' aqui pois geralmente os arquivos base do sistema (CATMAT)
+    são baixados do governo nesse formato.
     """
-    # ALTERADO: sep=','
     if os.path.exists(f"{nome_base}.zip"):
-        return pd.read_csv(f"{nome_base}.zip", sep=',', dtype=str, encoding='utf-8', compression='zip') 
+        return pd.read_csv(f"{nome_base}.zip", sep=';', dtype=str, encoding='utf-8', compression='zip') 
     elif os.path.exists(f"{nome_base}.csv"):
-        return pd.read_csv(f"{nome_base}.csv", sep=',', dtype=str, encoding='utf-8')
+        return pd.read_csv(f"{nome_base}.csv", sep=';', dtype=str, encoding='utf-8')
     else:
         uploaded = st.sidebar.file_uploader(uploader_label, type=["csv", "zip"])
         if uploaded:
             if uploaded.name.endswith('.zip'):
-                return pd.read_csv(uploaded, sep=',', dtype=str, encoding='utf-8', compression='zip')
+                return pd.read_csv(uploaded, sep=';', dtype=str, encoding='utf-8', compression='zip')
             else:
-                return pd.read_csv(uploaded, sep=',', dtype=str, encoding='utf-8')
+                return pd.read_csv(uploaded, sep=';', dtype=str, encoding='utf-8')
         return None
 
 def etapa1_unir_por_catmat(df1, df2):
@@ -39,7 +39,9 @@ def etapa1_unir_por_catmat(df1, df2):
     st.info("--- Iniciando Etapa 1: Junção por CATMAT ---")
     
     if 'CATMAT' not in df1.columns or 'Código do Item' not in df2.columns:
-        st.error(f"Erro na Etapa 1: Colunas não encontradas. Seu arquivo tem: {list(df1.columns)}")
+        # Tenta ser flexível com nomes de colunas caso venham diferentes
+        cols_df1 = list(df1.columns)
+        st.error(f"Erro na Etapa 1: Colunas não encontradas. Seu arquivo tem: {cols_df1}")
         return None, None
 
     df1['CATMAT'] = df1['CATMAT'].astype(str).str.strip()
@@ -114,6 +116,8 @@ def etapa2_unir_por_ncm(df_etapa1, df3):
 # --- INTERFACE LATERAL (ARQUIVOS FIXOS) ---
 
 st.sidebar.header("Arquivos de Referência")
+# NOTA: Mantendo ';' para os arquivos de referência para evitar erro de leitura
+# se os arquivos originais não tiverem sido convertidos.
 df_ref_catmat = carregar_arquivo_referencia("02-planilhaCatmat", "Carregar Tabela CATMAT (csv/zip)")
 df_ref_anexo = carregar_arquivo_referencia("03-anexo01", "Carregar Anexo 01 (csv/zip)")
 
@@ -137,27 +141,25 @@ modo_entrada = st.radio("Como você deseja inserir os dados?",
 df_user = None 
 
 if modo_entrada == "📁 Upload de Arquivo CSV/ZIP":
-    # ALTERADO: Texto da instrução
     st.markdown("O arquivo deve conter colunas separadas por **vírgula (,)**.")
     user_file = st.file_uploader("Selecione seu arquivo", type=["csv", "zip"])
     
     if user_file:
         try:
-            # ALTERADO: sep=','
+            # AQUI SIM: O arquivo do usuário deve ser separado por vírgula
             if user_file.name.endswith('.zip'):
                 df_user = pd.read_csv(user_file, sep=',', dtype=str, encoding='utf-8', compression='zip')
             else:
                 df_user = pd.read_csv(user_file, sep=',', dtype=str, encoding='utf-8')
         except Exception as e:
-            st.error(f"Erro ao ler arquivo: {e}")
+            st.error(f"Erro ao ler arquivo: {e}. Verifique se o arquivo realmente usa vírgulas como separador.")
 
 else: # Modo Digitação Manual
-    # ALTERADO: Texto da instrução e split
     st.markdown("Digite os códigos CATMAT separados por **vírgula (,)**.")
     texto_input = st.text_area("Exemplo: 12345, 67890, 455321", height=100)
     
     if texto_input:
-        lista_catmats = texto_input.split(',') # ALTERADO: split por vírgula
+        lista_catmats = texto_input.split(',')
         dados_virtuais = []
         
         contador_item = 1
@@ -201,7 +203,7 @@ if st.button("🚀 Processar Dados"):
                         st.markdown("Estes são os itens encontrados e prontos para uso.")
                         st.dataframe(df_final.set_index('ITEM') if 'ITEM' in df_final.columns else df_final)
                         
-                        # ALTERADO: sep=','
+                        # Saída com vírgula (solicitado pelo usuário)
                         csv = df_final.to_csv(sep=',', index=False, encoding='utf-8-sig').encode('utf-8-sig')
                         st.download_button(
                             label="📥 Baixar Resultado Processado (.csv)",
@@ -217,7 +219,7 @@ if st.button("🚀 Processar Dados"):
                 # --- EXIBIÇÃO: PARTE 2 - EXCEÇÕES (Fica abaixo) ---
                 
                 if df_excecoes is not None and not df_excecoes.empty:
-                    st.divider() # Linha visual para separar o sucesso das exceções
+                    st.divider() 
                     
                     st.warning(f"⚠️ Relatório de Exceções: {len(df_excecoes)} itens não puderam ser processados.")
                     st.markdown("Os itens abaixo não foram incluídos no resultado final pois não tiveram correspondência no CATMAT ou NCM.")
@@ -225,7 +227,7 @@ if st.button("🚀 Processar Dados"):
                     with st.expander("Clique para visualizar a lista de exceções"):
                         st.dataframe(df_excecoes.set_index('ITEM') if 'ITEM' in df_excecoes.columns else df_excecoes)
                     
-                    # ALTERADO: sep=','
+                    # Saída com vírgula (solicitado pelo usuário)
                     csv_excecoes = df_excecoes.to_csv(sep=',', index=False, encoding='utf-8-sig').encode('utf-8-sig')
                     st.download_button(
                         label="📥 Baixar Relatório de Exceções (.csv)",
