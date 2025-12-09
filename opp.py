@@ -18,16 +18,16 @@ def carregar_arquivo_referencia(nome_base, uploader_label):
     Prioriza ZIP por ser mais leve para o GitHub.
     """
     if os.path.exists(f"{nome_base}.zip"):
-        return pd.read_csv(f"{nome_base}.zip", sep=';', dtype=str, encoding='utf-8', compression='zip')
+        return pd.read_csv(f"{nome_base}.zip", sep=',', dtype=str, encoding='utf-8', compression='zip') # --- separador vírgula
     elif os.path.exists(f"{nome_base}.csv"):
-        return pd.read_csv(f"{nome_base}.csv", sep=';', dtype=str, encoding='utf-8')
+        return pd.read_csv(f"{nome_base}.csv", sep=',', dtype=str, encoding='utf-8')
     else:
         uploaded = st.sidebar.file_uploader(uploader_label, type=["csv", "zip"])
         if uploaded:
             if uploaded.name.endswith('.zip'):
-                return pd.read_csv(uploaded, sep=';', dtype=str, encoding='utf-8', compression='zip')
+                return pd.read_csv(uploaded, sep=',', dtype=str, encoding='utf-8', compression='zip')
             else:
-                return pd.read_csv(uploaded, sep=';', dtype=str, encoding='utf-8')
+                return pd.read_csv(uploaded, sep=',', dtype=str, encoding='utf-8')
         return None
 
 def etapa1_unir_por_catmat(df1, df2):
@@ -142,9 +142,9 @@ if modo_entrada == "📁 Upload de Arquivo CSV/ZIP":
     if user_file:
         try:
             if user_file.name.endswith('.zip'):
-                df_user = pd.read_csv(user_file, sep=';', dtype=str, encoding='utf-8', compression='zip')
+                df_user = pd.read_csv(user_file, sep=',', dtype=str, encoding='utf-8', compression='zip')
             else:
-                df_user = pd.read_csv(user_file, sep=';', dtype=str, encoding='utf-8')
+                df_user = pd.read_csv(user_file, sep=',', dtype=str, encoding='utf-8')
         except Exception as e:
             st.error(f"Erro ao ler arquivo: {e}")
 
@@ -197,7 +197,7 @@ if st.button("🚀 Processar Dados"):
                         st.markdown("Estes são os itens encontrados e prontos para uso.")
                         st.dataframe(df_final.set_index('ITEM') if 'ITEM' in df_final.columns else df_final)
                         
-                        csv = df_final.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                        csv = df_final.to_csv(sep=',', index=False, encoding='utf-8-sig').encode('utf-8-sig')
                         st.download_button(
                             label="📥 Baixar Resultado Processado (.csv)",
                             data=csv,
@@ -220,7 +220,7 @@ if st.button("🚀 Processar Dados"):
                     with st.expander("Clique para visualizar a lista de exceções"):
                         st.dataframe(df_excecoes.set_index('ITEM') if 'ITEM' in df_excecoes.columns else df_excecoes)
                     
-                    csv_excecoes = df_excecoes.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
+                    csv_excecoes = df_excecoes.to_csv(sep=',', index=False, encoding='utf-8-sig').encode('utf-8-sig')
                     st.download_button(
                         label="📥 Baixar Relatório de Exceções (.csv)",
                         data=csv_excecoes,
