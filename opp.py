@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import re
+import zipfile  # <--- IMPORT NECESSÁRIO PARA A CORREÇÃO
 
 # Configuração da Página
 st.set_page_config(page_title="Processador NCM", layout="wide")
@@ -9,7 +10,7 @@ st.set_page_config(page_title="Processador NCM", layout="wide")
 st.title("Processador de Arquivos NCM/CATMAT")
 st.markdown("""
 Este sistema processa arquivos CSV para vincular NCMs baseados no CATMAT.
-**Agora compatível com CSVs separados por vírgula ou ponto e vírgula, e diversas codificações (Excel/UTF-8).**
+**Agora compatível com CSVs separados por vírgula, ponto e vírgula ou tabulação, e diversas codificações.**
 """)
 
 # --- FUNÇÕES UTILITÁRIAS ---
@@ -17,46 +18,76 @@ Este sistema processa arquivos CSV para vincular NCMs baseados no CATMAT.
 def ler_csv_flexivel(arquivo, compression=None):
     """
     Tenta ler um arquivo CSV/ZIP testando diferentes encodings e separadores.
+    Agora com suporte avançado a ZIPs contendo pastas e múltiplos formatos.
     """
-    # Encodings comuns no Brasil: UTF-8 (padrão web), Latin-1 (Excel antigo), CP1252 (Windows)
-    encodings = ['utf-8', 'latin-1', 'cp1252', 'utf-8-sig']
-    separadores = [';', ',']
+    encodings = ['utf-8', 'latin-1', 'cp1252', 'utf-8-sig', 'iso-8859-1']
+    separadores = [';', ',', '\t'] # Adicionado TAB como possível separador
     
-    # Se for arquivo do Streamlit, precisamos resetar o ponteiro para tentar ler várias vezes
-    is_buffer = hasattr(arquivo, 'seek')
+    def tentar_ler(arquivo_aberto):
+        """Função interna para testar combinações de encoding e separador"""
+        # Se for um buffer de arquivo (como upload do streamlit), volta o ponteiro para o início
+        if hasattr(arquivo_aberto, 'seek'):
+            arquivo_aberto.seek(0)
+            
+        for enc in encodings:
+            for sep in separadores:
+                try:
+                    # Reseta o ponteiro a cada tentativa se for arquivo aberto
+                    if hasattr(arquivo_aberto, 'seek'):
+                        arquivo_aberto.seek(0)
+                    
+                    df = pd.read_csv(
+                        arquivo_aberto, 
+                        sep=sep, 
+                        dtype=str, 
+                        encoding=enc, 
+                        on_bad_lines='skip'
+                    )
+                    
+                    # Se tiver mais de 1 coluna, consideramos sucesso
+                    if df.shape[1] > 1:
+                        return df
+                except Exception:
+                    continue # Tenta a próxima combinação
+        return None
 
-    for enc in encodings:
-        for sep in separadores:
-            try:
-                if is_buffer:
-                    arquivo.seek(0)
-                
-                df = pd.read_csv(
-                    arquivo, 
-                    sep=sep, 
-                    dtype=str, 
-                    encoding=enc, 
-                    compression=compression,
-                    on_bad_lines='skip' # Pula linhas quebradas se houver erro de formatação
-                )
-                
-                # Verificação básica: Se leu tudo em uma única coluna, provavelmente o separador está errado
-                if df.shape[1] > 1:
-                    return df
-                
-                # Se só tem uma coluna, guardamos como tentativa, mas continuamos tentando outros separadores
-                # (caso o arquivo realmente só tenha uma coluna, retornaremos ele no final se nada melhor for achado)
-                df_fallback = df
-                
-            except Exception:
-                continue
+    # LÓGICA PARA ARQUIVOS ZIP
+    # Verifica se foi marcado como zip ou se o nome termina com .zip
+    is_zip = compression == 'zip' or (isinstance(arquivo, str) and arquivo.lower().endswith('.zip'))
     
-    # Se chegou aqui e tem um fallback (leu, mas ficou com 1 coluna), retorna ele
-    if 'df_fallback' in locals():
-        return df_fallback
-        
-    # Se falhou tudo
-    raise ValueError("Não foi possível ler o arquivo com os padrões detectados (UTF-8/Latin-1 e separadores ; ou ,)")
+    if is_zip:
+        try:
+            # Se for string (caminho local), usa direto. Se for UploadedFile, usa ele mesmo.
+            zf_source = arquivo
+            
+            with zipfile.ZipFile(zf_source) as z:
+                # Procura arquivos válidos (.csv ou .txt) e ignora pastas de sistema do Mac (__MACOSX)
+                lista_arquivos = [f for f in z.namelist() if f.lower().endswith(('.csv', '.txt')) and not '__MACOSX' in f]
+                
+                if not lista_arquivos:
+                    raise ValueError("O arquivo ZIP não contém arquivos .csv ou .txt válidos na raiz ou subpastas.")
+                
+                # Pega o primeiro arquivo válido encontrado
+                nome_arquivo_dentro = lista_arquivos[0]
+                
+                with z.open(nome_arquivo_dentro) as f:
+                    df = tentar_ler(f)
+                    if df is not None:
+                        return df
+                    else:
+                        raise ValueError(f"Não foi possível ler o arquivo '{nome_arquivo_dentro}' dentro do ZIP com nenhuma codificação padrão.")
+                        
+        except zipfile.BadZipFile:
+            raise ValueError("O arquivo fornecido não é um ZIP válido ou está corrompido.")
+            
+    # LÓGICA PARA ARQUIVOS CSV NORMAIS (Upload ou Local sem ser zip)
+    else:
+        df = tentar_ler(arquivo)
+        if df is not None:
+            return df
+
+    # Se chegou aqui, falhou tudo
+    raise ValueError("Falha na leitura: Não foi possível detectar o separador ou encoding correto (Tentei: UTF-8, Latin-1, CP1252 com ; , e Tab).")
 
 # --- FUNÇÕES DE PROCESSAMENTO ---
 
@@ -67,12 +98,21 @@ def carregar_arquivo_referencia(nome_base, uploader_label):
     df = None
     
     # 1. Tenta carregar localmente
+    # Nota: passamos compression='zip' apenas para sinalizar a lógica interna, 
+    # mas a nova função detecta extensão também.
     if os.path.exists(f"{nome_base}.zip"):
-        df = ler_csv_flexivel(f"{nome_base}.zip", compression='zip')
+        try:
+            df = ler_csv_flexivel(f"{nome_base}.zip", compression='zip')
+        except Exception as e:
+            st.warning(f"Erro ao tentar ler arquivo local {nome_base}.zip: {e}")
+            
     elif os.path.exists(f"{nome_base}.csv"):
-        df = ler_csv_flexivel(f"{nome_base}.csv")
+        try:
+            df = ler_csv_flexivel(f"{nome_base}.csv")
+        except Exception as e:
+            st.warning(f"Erro ao tentar ler arquivo local {nome_base}.csv: {e}")
     
-    # 2. Se não achou local, pede upload
+    # 2. Se não achou local ou falhou, pede upload
     if df is None:
         uploaded = st.sidebar.file_uploader(uploader_label, type=["csv", "zip"])
         if uploaded:
@@ -80,7 +120,7 @@ def carregar_arquivo_referencia(nome_base, uploader_label):
             try:
                 df = ler_csv_flexivel(uploaded, compression=compression_type)
             except Exception as e:
-                st.sidebar.error(f"Erro ao ler arquivo: {e}")
+                st.sidebar.error(f"Erro ao ler arquivo enviado: {e}")
                 
     return df
 
@@ -190,7 +230,7 @@ modo_entrada = st.radio("Como você deseja inserir os dados?",
 df_user = None 
 
 if modo_entrada == "📁 Upload de Arquivo CSV/ZIP":
-    st.markdown("Aceita arquivos separados por **ponto e vírgula (;)** ou **vírgula (,)**.")
+    st.markdown("Aceita arquivos separados por **ponto e vírgula (;)**, **vírgula (,)** ou **tabulação**.")
     user_file = st.file_uploader("Selecione seu arquivo", type=["csv", "zip"])
     
     if user_file:
