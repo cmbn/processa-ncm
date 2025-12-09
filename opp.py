@@ -18,16 +18,16 @@ def carregar_arquivo_referencia(nome_base, uploader_label):
     Prioriza ZIP por ser mais leve para o GitHub.
     """
     if os.path.exists(f"{nome_base}.zip"):
-        return pd.read_csv(f"{nome_base}.zip", sep=',', dtype=str, encoding='utf-8', compression='zip') # --- separador vírgula
+        return pd.read_csv(f"{nome_base}.zip", sep=';', dtype=str, encoding='utf-8', compression='zip') # --- separador vírgula
     elif os.path.exists(f"{nome_base}.csv"):
-        return pd.read_csv(f"{nome_base}.csv", sep=',', dtype=str, encoding='utf-8')
+        return pd.read_csv(f"{nome_base}.csv", sep=';', dtype=str, encoding='utf-8')
     else:
         uploaded = st.sidebar.file_uploader(uploader_label, type=["csv", "zip"])
         if uploaded:
             if uploaded.name.endswith('.zip'):
-                return pd.read_csv(uploaded, sep=',', dtype=str, encoding='utf-8', compression='zip')
+                return pd.read_csv(uploaded, sep=';', dtype=str, encoding='utf-8', compression='zip')
             else:
-                return pd.read_csv(uploaded, sep=',', dtype=str, encoding='utf-8')
+                return pd.read_csv(uploaded, sep=';', dtype=str, encoding='utf-8')
         return None
 
 def etapa1_unir_por_catmat(df1, df2):
