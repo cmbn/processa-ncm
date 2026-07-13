@@ -120,6 +120,9 @@ def etapa1_unir_por_catmat(df1, df2):
     # Busca com Prioridade Estrita
     col_user = encontrar_coluna_prioridade(df1, ['CATMAT', 'CÓDIGO DO ITEM', 'CODIGO DO ITEM', 'CÓDIGO', 'CODIGO', 'ITEM'])
     col_ref = encontrar_coluna_prioridade(df2, ['CÓDIGO DO ITEM', 'CODIGO DO ITEM', 'CÓDIGO ITEM', 'CODIGO ITEM', 'CATMAT'])
+    
+    # Busca pela coluna de Especificação/Descrição no arquivo do usuário
+    col_especificacao = next((c for c in df1.columns if 'ESPECIFICA' in c.upper() or 'DESCRI' in c.upper()), None)
 
     if col_ref is None:
         st.error("❌ Erro na Etapa 1: Coluna de 'Código do Item' não identificada na Planilha CATMAT.")
@@ -182,7 +185,11 @@ def etapa1_unir_por_catmat(df1, df2):
     df_excecoes_total = pd.concat([df_excecoes_catmat, df_excecoes_ncm], ignore_index=True)
     df_excecoes_total = remover_colunas_duplicadas(df_excecoes_total)
     
-    cols_desejadas_excecao = ['ITEM', 'Descrição do Item', 'ESPECIFICAÇÃO', col_user, 'Código NCM', 'Margem Preferencia', 'Motivo_Excecao']
+    # Ajustando as colunas de exceção para incluir a Especificação, se existir
+    cols_desejadas_excecao = ['ITEM']
+    if col_especificacao: cols_desejadas_excecao.append(col_especificacao)
+    cols_desejadas_excecao.extend(['Descrição do Item', col_user, 'Código NCM', 'Margem Preferencia', 'Motivo_Excecao'])
+    
     cols_finais_excecao = []
     for c in cols_desejadas_excecao:
         if c in df_excecoes_total.columns and c not in cols_finais_excecao:
@@ -192,7 +199,12 @@ def etapa1_unir_por_catmat(df1, df2):
 
     if not df_sucesso.empty:
         df_sucesso = remover_colunas_duplicadas(df_sucesso)
-        cols_desejadas_sucesso = ['ITEM', 'Descrição do Item', col_user, 'Código NCM', 'Margem Preferencia']
+        
+        # Ajustando a ordem das colunas do sucesso para incluir a Especificação, se existir
+        cols_desejadas_sucesso = ['ITEM']
+        if col_especificacao: cols_desejadas_sucesso.append(col_especificacao)
+        cols_desejadas_sucesso.extend(['Descrição do Item', col_user, 'Código NCM', 'Margem Preferencia'])
+        
         cols_existentes_sucesso = []
         for c in cols_desejadas_sucesso:
             if c in df_sucesso.columns and c not in cols_existentes_sucesso:
@@ -221,7 +233,7 @@ def etapa2_filtrar_anexo_ncm(df_etapa1, df3):
 
     for idx, row in df_etapa1.iterrows():
         ncm_original = str(row['Código NCM']).strip()
-        ncm_limpo = ncm_original.replace('.', '').strip()
+        ncm_limpo = ncm_original.replace('.', '', regex=False).strip()
         ncm_4_digitos = ncm_limpo[:4] if len(ncm_limpo) >= 4 else ""
         
         item_dict = row.to_dict()
