@@ -69,12 +69,10 @@ def remover_colunas_duplicadas(df):
 
 def encontrar_coluna_prioridade(df, palavras_chave):
     """Busca a coluna respeitando a ordem de prioridade exata da lista."""
-    # 1. Tenta correspondência EXATA primeiro
     for pw in palavras_chave:
         for c in df.columns:
             if pw == c.upper().strip():
                 return c
-    # 2. Tenta correspondência PARCIAL depois
     for pw in palavras_chave:
         for c in df.columns:
             if pw in c.upper().strip():
@@ -117,37 +115,31 @@ def etapa1_unir_por_catmat(df1, df2):
     df1 = remover_colunas_duplicadas(df1)
     df2 = remover_colunas_duplicadas(df2)
     
-    # Busca com Prioridade Estrita
     col_user = encontrar_coluna_prioridade(df1, ['CATMAT', 'CÓDIGO DO ITEM', 'CODIGO DO ITEM', 'CÓDIGO', 'CODIGO', 'ITEM'])
     col_ref = encontrar_coluna_prioridade(df2, ['CÓDIGO DO ITEM', 'CODIGO DO ITEM', 'CÓDIGO ITEM', 'CODIGO ITEM', 'CATMAT'])
     
-    # Busca pela coluna de Especificação/Descrição no arquivo do usuário
     col_especificacao = next((c for c in df1.columns if 'ESPECIFICA' in c.upper() or 'DESCRI' in c.upper()), None)
 
     if col_ref is None:
         st.error("❌ Erro na Etapa 1: Coluna de 'Código do Item' não identificada na Planilha CATMAT.")
         return None, None
 
-    # Correção extra para evitar que CATMATs virem floats no pandas (ex: 440049.0 vira 440049)
     df1[col_user] = df1[col_user].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
     df2[col_ref] = df2[col_ref].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
     df_merged = pd.merge(df1, df2, left_on=col_user, right_on=col_ref, how='left', indicator=True)
     df_merged = remover_colunas_duplicadas(df_merged)
     
-    # 1. Separar o que não foi achado no CATMAT
     mask_nao_encontrado = df_merged['_merge'] == 'left_only'
     df_excecoes_catmat = df_merged[mask_nao_encontrado].copy()
     df_excecoes_catmat['Motivo_Excecao'] = 'CATMAT não encontrado na base de referência'
 
     df_encontrados = df_merged[df_merged['_merge'] == 'both'].copy()
     
-    # Busca inteligente das colunas de NCM e Margem Preferência
     col_ncm_ref = next((c for c in df_encontrados.columns if 'NCM' in c.upper()), None)
     col_margem_ref = next((c for c in df_encontrados.columns if 'MARGEM' in c.upper() or 'PREFER' in c.upper()), None)
     
     if col_ncm_ref is not None and col_margem_ref is not None:
-        # Condição 1: NCM válido
         mask_ncm_valido = (
             df_encontrados[col_ncm_ref].notna() & 
             (df_encontrados[col_ncm_ref].astype(str).str.strip() != '') & 
@@ -155,11 +147,9 @@ def etapa1_unir_por_catmat(df1, df2):
             (df_encontrados[col_ncm_ref].astype(str).str.upper() != 'NAN')
         )
         
-        # Condição 2: Margem de Preferência igual a "SIM"
         mask_margem_sim = df_encontrados[col_margem_ref].astype(str).str.strip().str.upper() == 'SIM'
         
         df_sucesso = df_encontrados[mask_ncm_valido & mask_margem_sim].copy()
-        
         df_excecoes_ncm = df_encontrados[~(mask_ncm_valido & mask_margem_sim)].copy()
         
         def definir_motivo(row):
@@ -185,10 +175,10 @@ def etapa1_unir_por_catmat(df1, df2):
     df_excecoes_total = pd.concat([df_excecoes_catmat, df_excecoes_ncm], ignore_index=True)
     df_excecoes_total = remover_colunas_duplicadas(df_excecoes_total)
     
-    # Ajustando as colunas de exceção para incluir a Especificação, se existir
+    # Ordenação de colunas da exceção (ITEM -> Especificação -> CATMAT)
     cols_desejadas_excecao = ['ITEM']
     if col_especificacao: cols_desejadas_excecao.append(col_especificacao)
-    cols_desejadas_excecao.extend(['Descrição do Item', col_user, 'Código NCM', 'Margem Preferencia', 'Motivo_Excecao'])
+    cols_desejadas_excecao.extend([col_user, 'Descrição do Item', 'Código NCM', 'Margem Preferencia', 'Motivo_Excecao'])
     
     cols_finais_excecao = []
     for c in cols_desejadas_excecao:
@@ -200,10 +190,10 @@ def etapa1_unir_por_catmat(df1, df2):
     if not df_sucesso.empty:
         df_sucesso = remover_colunas_duplicadas(df_sucesso)
         
-        # Ajustando a ordem das colunas do sucesso para incluir a Especificação, se existir
+        # Ordenação de colunas do sucesso (ITEM -> Especificação -> CATMAT)
         cols_desejadas_sucesso = ['ITEM']
         if col_especificacao: cols_desejadas_sucesso.append(col_especificacao)
-        cols_desejadas_sucesso.extend(['Descrição do Item', col_user, 'Código NCM', 'Margem Preferencia'])
+        cols_desejadas_sucesso.extend([col_user, 'Descrição do Item', 'Código NCM', 'Margem Preferencia'])
         
         cols_existentes_sucesso = []
         for c in cols_desejadas_sucesso:
@@ -233,12 +223,13 @@ def etapa2_filtrar_anexo_ncm(df_etapa1, df3):
 
     for idx, row in df_etapa1.iterrows():
         ncm_original = str(row['Código NCM']).strip()
-        ncm_limpo = ncm_original.replace('.', '', regex=False).strip()
+        # CORREÇÃO: replace do python nativo (string normal, sem regex=False)
+        ncm_limpo = ncm_original.replace('.', '').strip() 
         ncm_4_digitos = ncm_limpo[:4] if len(ncm_limpo) >= 4 else ""
         
         item_dict = row.to_dict()
         
-        # 1. Tenta buscar pelo código completo (8 dígitos) de forma exata
+        # 1. Tenta buscar pelo código completo de forma exata
         match = df3[df3['chave_juncao'] == ncm_limpo]
         
         # 2. SE NÃO ENCONTROU EXATO: Tenta encontrar qualquer NCM no anexo que COMECE com os 4 dígitos iniciais
@@ -250,7 +241,6 @@ def etapa2_filtrar_anexo_ncm(df_etapa1, df3):
             for col in cols_anexo_extras:
                 item_dict[col] = match.iloc[0][col]
             
-            # Adiciona rastreabilidade de como ele achou no anexo
             if (match.iloc[0]['chave_juncao'] == ncm_limpo):
                 item_dict['Match NCM Anexo'] = 'Integral (8 dígitos)'
             else:
