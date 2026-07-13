@@ -67,6 +67,20 @@ def remover_colunas_duplicadas(df):
     """Remove colunas com o mesmo nome para evitar erros no Streamlit/PyArrow."""
     return df.loc[:, ~df.columns.duplicated()].copy()
 
+def encontrar_coluna_prioridade(df, palavras_chave):
+    """Busca a coluna respeitando a ordem de prioridade exata da lista."""
+    # 1. Tenta correspondência EXATA primeiro
+    for pw in palavras_chave:
+        for c in df.columns:
+            if pw == c.upper().strip():
+                return c
+    # 2. Tenta correspondência PARCIAL depois
+    for pw in palavras_chave:
+        for c in df.columns:
+            if pw in c.upper().strip():
+                return c
+    return df.columns[0]
+
 # --- FUNÇÕES DE PROCESSAMENTO ---
 
 def carregar_arquivo_referencia(nome_base, uploader_label):
@@ -103,9 +117,9 @@ def etapa1_unir_por_catmat(df1, df2):
     df1 = remover_colunas_duplicadas(df1)
     df2 = remover_colunas_duplicadas(df2)
     
-    # Busca inteligente de colunas essenciais
-    col_user = next((c for c in df1.columns if c.upper() in ['CATMAT', 'CÓDIGO', 'CODIGO', 'ITEM']), df1.columns[0])
-    col_ref = next((c for c in df2.columns if 'CÓDIGO DO ITEM' in c.upper() or 'CODIGO DO ITEM' in c.upper() or 'CÓDIGO ITEM' in c.upper() or 'CATMAT' in c.upper() or 'ITEM' in c.upper()), None)
+    # Busca com Prioridade Estrita
+    col_user = encontrar_coluna_prioridade(df1, ['CATMAT', 'CÓDIGO DO ITEM', 'CODIGO DO ITEM', 'CÓDIGO', 'CODIGO', 'ITEM'])
+    col_ref = encontrar_coluna_prioridade(df2, ['CÓDIGO DO ITEM', 'CODIGO DO ITEM', 'CÓDIGO ITEM', 'CODIGO ITEM', 'CATMAT'])
 
     if col_ref is None:
         st.error("❌ Erro na Etapa 1: Coluna de 'Código do Item' não identificada na Planilha CATMAT.")
@@ -151,7 +165,7 @@ def etapa1_unir_por_catmat(df1, df2):
             if ncm in ['', '-', 'NAN', 'NONE']:
                 return 'NCM inválido ou ausente na base CATMAT'
             if margem != 'SIM':
-                return f'Sem Margem de Preferência (Valor CATMAT: {row[col_margem_ref]})'
+                return f'Sem Margem de Preferência (Valor: {row[col_margem_ref]})'
             return 'Critérios não atendidos'
             
         df_excecoes_ncm['Motivo_Excecao'] = df_excecoes_ncm.apply(definir_motivo, axis=1)
