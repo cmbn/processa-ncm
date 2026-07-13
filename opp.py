@@ -108,13 +108,9 @@ def etapa1_unir_por_catmat(df1, df2):
     df2.columns = df2.columns.str.strip()
     
     # --- BUSCA INTELIGENTE DE COLUNAS ---
-    # Encontra a coluna CATMAT no arquivo do usuário (ou pega a primeira coluna por padrão)
     col_user = next((c for c in df1.columns if c.upper() in ['CATMAT', 'CÓDIGO', 'CODIGO', 'ITEM']), df1.columns[0])
-    
-    # Encontra a coluna de Código na Planilha CATMAT de Referência
     col_ref = next((c for c in df2.columns if 'CÓDIGO DO ITEM' in c.upper() or 'CODIGO DO ITEM' in c.upper() or 'CATMAT' in c.upper() or 'ITEM' in c.upper()), None)
 
-    # Se não encontrar a coluna na referência, exibe os nomes para debug
     if col_ref is None:
         st.error("❌ Erro na Etapa 1: Não foi possível identificar a coluna de 'Código do Item' no arquivo de referência.")
         st.warning(f"Colunas encontradas na Planilha CATMAT (Referência): {list(df2.columns)}")
@@ -122,22 +118,17 @@ def etapa1_unir_por_catmat(df1, df2):
         st.info("💡 Dica: Verifique se o arquivo CSV possui linhas em branco no topo antes do cabeçalho.")
         return None, None
 
-    # Padroniza como texto para evitar perda de zeros à esquerda
     df1[col_user] = df1[col_user].astype(str).str.strip()
     df2[col_ref] = df2[col_ref].astype(str).str.strip()
 
-    # Realiza a junção
     df_merged = pd.merge(df1, df2, left_on=col_user, right_on=col_ref, how='left', indicator=True)
     
-    # 1. Identificar CATMATs não encontrados
     mask_nao_encontrado = df_merged['_merge'] == 'left_only'
     df_excecoes_catmat = df_merged[mask_nao_encontrado].copy()
     df_excecoes_catmat['Motivo_Excecao'] = 'CATMAT não encontrado na base de referência'
 
-    # 2. Filtrar os encontrados para verificar NCM
     df_encontrados = df_merged[df_merged['_merge'] == 'both'].copy()
     
-    # Busca inteligente pela coluna de NCM na referência
     col_ncm_ref = next((c for c in df_encontrados.columns if 'NCM' in c.upper()), None)
     
     if col_ncm_ref is not None:
@@ -151,7 +142,6 @@ def etapa1_unir_por_catmat(df1, df2):
         df_excecoes_ncm = df_encontrados[~mask_ncm_valido].copy()
         df_excecoes_ncm['Motivo_Excecao'] = 'NCM inválido ou ausente na referência (Sem Margem)'
         
-        # Renomeia a coluna NCM achada para o padrão esperado pela Etapa 2
         df_sucesso.rename(columns={col_ncm_ref: 'Código NCM'}, inplace=True)
         df_excecoes_ncm.rename(columns={col_ncm_ref: 'Código NCM'}, inplace=True)
     else:
@@ -162,13 +152,21 @@ def etapa1_unir_por_catmat(df1, df2):
 
     df_excecoes_total = pd.concat([df_excecoes_catmat, df_excecoes_ncm])
     
-    # Seleção de colunas para exibir de forma limpa nas exceções
+    # --- CORREÇÃO DO ERRO: REMOVENDO COLUNAS DUPLICADAS ---
     cols_possiveis = ['ITEM', 'Descrição do Item', 'ESPECIFICAÇÃO', col_user, 'Código NCM', 'Motivo_Excecao']
-    cols_finais_excecao = [c for c in cols_possiveis if c in df_excecoes_total.columns]
+    
+    cols_finais_excecao = []
+    for c in cols_possiveis:
+        if c in df_excecoes_total.columns and c not in cols_finais_excecao:
+            cols_finais_excecao.append(c)
+            
     df_excecoes_final = df_excecoes_total[cols_finais_excecao]
 
     colunas_sucesso = ['ITEM', 'Descrição do Item', col_user, 'Código NCM']
-    cols_existentes_sucesso = [c for c in colunas_sucesso if c in df_sucesso.columns]
+    cols_existentes_sucesso = []
+    for c in colunas_sucesso:
+        if c in df_sucesso.columns and c not in cols_existentes_sucesso:
+            cols_existentes_sucesso.append(c)
     
     st.write(f"Processamento inicial: {len(df_sucesso)} itens com NCM identificados para análise de margem no Anexo 01.")
     
@@ -297,16 +295,17 @@ if st.button("🚀 Processar Dados"):
     if df_user is not None and not df_user.empty:
         if df_ref_catmat is not None and df_ref_anexo is not None:
             try:
+                # --- Executa Processamento ---
                 df_intermed, df_excecoes_etapa1 = etapa1_unir_por_catmat(df_user, df_ref_catmat)
                 
                 sucesso_gerado = False
                 df_excecoes_total = df_excecoes_etapa1.copy() if df_excecoes_etapa1 is not None else pd.DataFrame()
                 
+                # --- APLICA A ETAPA 2 (SOMENTE ITENS COM MARGEM E BUSCA 8/4 DÍGITOS) ---
                 if df_intermed is not None and not df_intermed.empty:
                     df_final, df_excecoes_etapa2 = etapa2_filtrar_margem_ncm(df_intermed, df_ref_anexo)
                     
                     if not df_excecoes_etapa2.empty:
-                        # Adiciona as exceções da Etapa 2 na lista de exceções total
                         df_excecoes_total = pd.concat([df_excecoes_total, df_excecoes_etapa2], ignore_index=True)
 
                     if df_final is not None and not df_final.empty:
