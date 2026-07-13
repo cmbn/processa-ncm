@@ -10,15 +10,13 @@ st.set_page_config(page_title="Processador NCM", layout="wide")
 st.title("Processador de Arquivos NCM/CATMAT")
 st.markdown("""
 Este sistema processa arquivos CSV para vincular NCMs baseados no CATMAT.
-**Regra atual:** Seleciona apenas itens COM MARGEM (busca 8 ou 4 dígitos). Conta com busca inteligente de colunas para evitar erros de cabeçalho.
+**Regra atual:** Seleciona apenas itens com **Margem Preferencia = SIM** (no CATMAT) e busca o NCM no Anexo 01 por **8 ou 4 dígitos**.
 """)
 
 # --- FUNÇÕES UTILITÁRIAS ---
 
 def ler_csv_flexivel(arquivo, compression=None):
-    """
-    Tenta ler um arquivo CSV/ZIP testando diferentes encodings e separadores.
-    """
+    """Tenta ler um arquivo CSV/ZIP testando diferentes encodings e separadores."""
     encodings = ['utf-8', 'latin-1', 'cp1252', 'utf-8-sig', 'iso-8859-1']
     separadores = [';', ',', '\t']
     
@@ -32,14 +30,7 @@ def ler_csv_flexivel(arquivo, compression=None):
                     if hasattr(arquivo_aberto, 'seek'):
                         arquivo_aberto.seek(0)
                     
-                    df = pd.read_csv(
-                        arquivo_aberto, 
-                        sep=sep, 
-                        dtype=str, 
-                        encoding=enc, 
-                        on_bad_lines='skip'
-                    )
-                    
+                    df = pd.read_csv(arquivo_aberto, sep=sep, dtype=str, encoding=enc, on_bad_lines='skip')
                     if df.shape[1] > 1:
                         return df
                 except Exception:
@@ -53,9 +44,8 @@ def ler_csv_flexivel(arquivo, compression=None):
             zf_source = arquivo
             with zipfile.ZipFile(zf_source) as z:
                 lista_arquivos = [f for f in z.namelist() if f.lower().endswith(('.csv', '.txt')) and not '__MACOSX' in f]
-                
                 if not lista_arquivos:
-                    raise ValueError("O arquivo ZIP não contém arquivos .csv ou .txt válidos na raiz ou subpastas.")
+                    raise ValueError("O arquivo ZIP não contém arquivos .csv ou .txt válidos.")
                 
                 nome_arquivo_dentro = lista_arquivos[0]
                 with z.open(nome_arquivo_dentro) as f:
@@ -72,6 +62,10 @@ def ler_csv_flexivel(arquivo, compression=None):
             return df
 
     raise ValueError("Falha na leitura: Não foi possível detectar o separador ou encoding correto.")
+
+def remover_colunas_duplicadas(df):
+    """Remove colunas com o mesmo nome para evitar erros no Streamlit/PyArrow."""
+    return df.loc[:, ~df.columns.duplicated()].copy()
 
 # --- FUNÇÕES DE PROCESSAMENTO ---
 
@@ -101,88 +95,116 @@ def carregar_arquivo_referencia(nome_base, uploader_label):
     return df
 
 def etapa1_unir_por_catmat(df1, df2):
-    st.info("--- Iniciando Etapa 1: Junção por CATMAT ---")
+    st.info("--- Iniciando Etapa 1: Junção por CATMAT e Filtro de Margem 'SIM' ---")
     
-    # Limpa espaços extras nos nomes das colunas
     df1.columns = df1.columns.str.strip()
     df2.columns = df2.columns.str.strip()
     
-    # --- BUSCA INTELIGENTE DE COLUNAS ---
+    # Remove colunas duplicadas nos arquivos originais (se houver)
+    df1 = remover_colunas_duplicadas(df1)
+    df2 = remover_colunas_duplicadas(df2)
+    
+    # Busca inteligente de colunas essenciais
     col_user = next((c for c in df1.columns if c.upper() in ['CATMAT', 'CÓDIGO', 'CODIGO', 'ITEM']), df1.columns[0])
     col_ref = next((c for c in df2.columns if 'CÓDIGO DO ITEM' in c.upper() or 'CODIGO DO ITEM' in c.upper() or 'CATMAT' in c.upper() or 'ITEM' in c.upper()), None)
 
     if col_ref is None:
-        st.error("❌ Erro na Etapa 1: Não foi possível identificar a coluna de 'Código do Item' no arquivo de referência.")
-        st.warning(f"Colunas encontradas na Planilha CATMAT (Referência): {list(df2.columns)}")
-        st.warning(f"Colunas encontradas no seu arquivo: {list(df1.columns)}")
-        st.info("💡 Dica: Verifique se o arquivo CSV possui linhas em branco no topo antes do cabeçalho.")
+        st.error("❌ Erro na Etapa 1: Coluna de 'Código do Item' não identificada na Planilha CATMAT.")
         return None, None
 
     df1[col_user] = df1[col_user].astype(str).str.strip()
     df2[col_ref] = df2[col_ref].astype(str).str.strip()
 
     df_merged = pd.merge(df1, df2, left_on=col_user, right_on=col_ref, how='left', indicator=True)
+    df_merged = remover_colunas_duplicadas(df_merged)
     
+    # 1. Separar o que não foi achado no CATMAT
     mask_nao_encontrado = df_merged['_merge'] == 'left_only'
     df_excecoes_catmat = df_merged[mask_nao_encontrado].copy()
     df_excecoes_catmat['Motivo_Excecao'] = 'CATMAT não encontrado na base de referência'
 
     df_encontrados = df_merged[df_merged['_merge'] == 'both'].copy()
     
+    # Busca inteligente das colunas de NCM e Margem Preferência
     col_ncm_ref = next((c for c in df_encontrados.columns if 'NCM' in c.upper()), None)
+    col_margem_ref = next((c for c in df_encontrados.columns if 'MARGEM' in c.upper() or 'PREFER' in c.upper()), None)
     
-    if col_ncm_ref is not None:
+    if col_ncm_ref is not None and col_margem_ref is not None:
+        # Condição 1: NCM válido
         mask_ncm_valido = (
             df_encontrados[col_ncm_ref].notna() & 
-            (df_encontrados[col_ncm_ref] != '') & 
-            (df_encontrados[col_ncm_ref].str.strip() != '-')
+            (df_encontrados[col_ncm_ref].astype(str).str.strip() != '') & 
+            (df_encontrados[col_ncm_ref].astype(str).str.strip() != '-') &
+            (df_encontrados[col_ncm_ref].astype(str).str.upper() != 'NAN')
         )
-        df_sucesso = df_encontrados[mask_ncm_valido].copy()
         
-        df_excecoes_ncm = df_encontrados[~mask_ncm_valido].copy()
-        df_excecoes_ncm['Motivo_Excecao'] = 'NCM inválido ou ausente na referência (Sem Margem)'
+        # Condição 2: Margem de Preferência igual a "SIM"
+        mask_margem_sim = df_encontrados[col_margem_ref].astype(str).str.strip().str.upper() == 'SIM'
         
-        df_sucesso.rename(columns={col_ncm_ref: 'Código NCM'}, inplace=True)
-        df_excecoes_ncm.rename(columns={col_ncm_ref: 'Código NCM'}, inplace=True)
+        df_sucesso = df_encontrados[mask_ncm_valido & mask_margem_sim].copy()
+        
+        # O que falhar nas condições acima vai para exceção com o motivo mapeado
+        df_excecoes_ncm = df_encontrados[~(mask_ncm_valido & mask_margem_sim)].copy()
+        
+        def definir_motivo(row):
+            ncm = str(row[col_ncm_ref]).strip().upper()
+            margem = str(row[col_margem_ref]).strip().upper()
+            if ncm in ['', '-', 'NAN', 'NONE']:
+                return 'NCM inválido ou ausente'
+            if margem != 'SIM':
+                return f'Sem Margem de Preferência (Valor CATMAT: {row[col_margem_ref]})'
+            return 'Critérios não atendidos'
+            
+        df_excecoes_ncm['Motivo_Excecao'] = df_excecoes_ncm.apply(definir_motivo, axis=1)
+        
+        df_sucesso.rename(columns={col_ncm_ref: 'Código NCM', col_margem_ref: 'Margem Preferencia'}, inplace=True)
+        df_excecoes_ncm.rename(columns={col_ncm_ref: 'Código NCM', col_margem_ref: 'Margem Preferencia'}, inplace=True)
     else:
         df_sucesso = pd.DataFrame()
         df_excecoes_ncm = df_encontrados.copy()
         df_excecoes_ncm['Código NCM'] = ''
-        df_excecoes_ncm['Motivo_Excecao'] = 'Coluna de NCM inexistente na referência'
+        df_excecoes_ncm['Margem Preferencia'] = ''
+        df_excecoes_ncm['Motivo_Excecao'] = 'Colunas de NCM ou Margem não encontradas no arquivo CATMAT'
 
-    df_excecoes_total = pd.concat([df_excecoes_catmat, df_excecoes_ncm])
+    # Unifica as exceções da etapa 1
+    df_excecoes_total = pd.concat([df_excecoes_catmat, df_excecoes_ncm], ignore_index=True)
+    df_excecoes_total = remover_colunas_duplicadas(df_excecoes_total)
     
-    # --- CORREÇÃO DO ERRO: REMOVENDO COLUNAS DUPLICADAS ---
-    cols_possiveis = ['ITEM', 'Descrição do Item', 'ESPECIFICAÇÃO', col_user, 'Código NCM', 'Motivo_Excecao']
-    
+    # Garante que só seleciona as colunas finais se elas não estiverem duplicadas (Evita o erro ValueError: Duplicate column names)
+    cols_desejadas_excecao = ['ITEM', 'Descrição do Item', 'ESPECIFICAÇÃO', col_user, 'Código NCM', 'Margem Preferencia', 'Motivo_Excecao']
     cols_finais_excecao = []
-    for c in cols_possiveis:
+    for c in cols_desejadas_excecao:
         if c in df_excecoes_total.columns and c not in cols_finais_excecao:
             cols_finais_excecao.append(c)
             
     df_excecoes_final = df_excecoes_total[cols_finais_excecao]
 
-    colunas_sucesso = ['ITEM', 'Descrição do Item', col_user, 'Código NCM']
-    cols_existentes_sucesso = []
-    for c in colunas_sucesso:
-        if c in df_sucesso.columns and c not in cols_existentes_sucesso:
-            cols_existentes_sucesso.append(c)
+    if not df_sucesso.empty:
+        df_sucesso = remover_colunas_duplicadas(df_sucesso)
+        cols_desejadas_sucesso = ['ITEM', 'Descrição do Item', col_user, 'Código NCM', 'Margem Preferencia']
+        cols_existentes_sucesso = []
+        for c in cols_desejadas_sucesso:
+            if c in df_sucesso.columns and c not in cols_existentes_sucesso:
+                cols_existentes_sucesso.append(c)
+        df_sucesso = df_sucesso[cols_existentes_sucesso]
     
-    st.write(f"Processamento inicial: {len(df_sucesso)} itens com NCM identificados para análise de margem no Anexo 01.")
+    st.write(f"Etapa 1: {len(df_sucesso)} itens com Margem='SIM' e NCM válido separados para pesquisa no Anexo.")
     
-    return df_sucesso[cols_existentes_sucesso], df_excecoes_final
+    return df_sucesso, df_excecoes_final
 
-def etapa2_filtrar_margem_ncm(df_etapa1, df3):
-    st.info("--- Iniciando Etapa 2: Identificação de Margem (NCM Completo ou 4 Dígitos) ---")
+def etapa2_filtrar_anexo_ncm(df_etapa1, df3):
+    st.info("--- Iniciando Etapa 2: Busca no Anexo 01 (NCM Completo ou 4 Dígitos) ---")
     
     df_etapa1['Código NCM'] = df_etapa1['Código NCM'].astype(str)
     
     df3.columns = df3.columns.str.strip()
-    col_ncm_anexo = next((c for c in df3.columns if 'NCM' in c.upper()), df3.columns[0])
+    df3 = remover_colunas_duplicadas(df3)
     
+    col_ncm_anexo = next((c for c in df3.columns if 'NCM' in c.upper()), df3.columns[0])
     df3['chave_juncao'] = df3[col_ncm_anexo].astype(str).str.replace('.', '', regex=False).str.strip()
 
-    cols_anexo_extras = [c for c in df3.columns if c not in [col_ncm_anexo, 'chave_juncao']]
+    # Pega os dados que vieram do anexo (ex: % normal, % adicional) sem gerar duplicadas
+    cols_anexo_extras = [c for c in df3.columns if c not in [col_ncm_anexo, 'chave_juncao'] and c not in df_etapa1.columns]
 
     itens_com_margem = []
     itens_sem_margem = []
@@ -204,19 +226,25 @@ def etapa2_filtrar_margem_ncm(df_etapa1, df3):
         if not match.empty:
             for col in cols_anexo_extras:
                 item_dict[col] = match.iloc[0][col]
+            item_dict['Match NCM'] = 'Integral (8 dígitos)' if len(match.iloc[0]['chave_juncao']) > 4 else 'Parcial (4 dígitos)'
             itens_com_margem.append(item_dict)
         else:
-            item_dict['Motivo_Excecao'] = 'NCM não localizado no Anexo 01 (Sem Margem)'
+            item_dict['Motivo_Excecao'] = 'NCM não localizado no Anexo 01 (Sem Correspondência)'
             itens_sem_margem.append(item_dict)
 
     df_final_sucesso = pd.DataFrame(itens_com_margem)
     df_excecoes_etapa2 = pd.DataFrame(itens_sem_margem)
     
-    if not df_final_sucesso.empty and 'ITEM' in df_final_sucesso.columns:
-        df_final_sucesso['ITEM'] = pd.to_numeric(df_final_sucesso['ITEM'], errors='coerce')
-        df_final_sucesso = df_final_sucesso.sort_values(by='ITEM')
+    if not df_final_sucesso.empty:
+        df_final_sucesso = remover_colunas_duplicadas(df_final_sucesso)
+        if 'ITEM' in df_final_sucesso.columns:
+            df_final_sucesso['ITEM'] = pd.to_numeric(df_final_sucesso['ITEM'], errors='coerce')
+            df_final_sucesso = df_final_sucesso.sort_values(by='ITEM')
+            
+    if not df_excecoes_etapa2.empty:
+        df_excecoes_etapa2 = remover_colunas_duplicadas(df_excecoes_etapa2)
     
-    st.success(f"Filtro concluído! Itens selecionados COM MARGEM: {len(df_final_sucesso)}")
+    st.success(f"Etapa 2 concluída! Itens validados finalizados com margem: {len(df_final_sucesso)}")
     return df_final_sucesso, df_excecoes_etapa2
 
 # --- INTERFACE LATERAL (ARQUIVOS DE REFERÊNCIA) ---
@@ -227,9 +255,7 @@ df_ref_anexo = carregar_arquivo_referencia("03-anexo01", "Carregar Anexo 01")
 
 if df_ref_catmat is not None:
     st.sidebar.success(f"✅ CATMAT OK ({len(df_ref_catmat)} linhas)")
-    st.sidebar.markdown(
-        "[Planilha CATMAT: última modificação 21/11/2025 17h30](https://www.gov.br/compras/pt-br/acesso-a-informacao/consulta-detalhada/planilha-catmat-catser)"
-    )
+    st.sidebar.markdown("[Planilha CATMAT Oficial](https://www.gov.br/compras/pt-br/acesso-a-informacao/consulta-detalhada/planilha-catmat-catser)")
 else:
     st.sidebar.warning("⚠️ Tabela CATMAT pendente")
 
@@ -241,9 +267,7 @@ else:
 # --- INTERFACE PRINCIPAL ---
 
 st.header("Entrada de Dados")
-
-modo_entrada = st.radio("Como você deseja inserir os dados?", 
-                        ["📁 Upload de Arquivo CSV/ZIP", "✍️ Digitar CATMATs Manualmente"])
+modo_entrada = st.radio("Como você deseja inserir os dados?", ["📁 Upload de Arquivo CSV/ZIP", "✍️ Digitar CATMATs Manualmente"])
 
 df_user = None 
 
@@ -256,36 +280,16 @@ if modo_entrada == "📁 Upload de Arquivo CSV/ZIP":
             compression_type = 'zip' if user_file.name.endswith('.zip') else None
             df_user = ler_csv_flexivel(user_file, compression=compression_type)
             st.success(f"Arquivo lido com sucesso! {len(df_user)} linhas identificadas.")
-            with st.expander("Ver primeiras linhas do seu arquivo"):
-                st.dataframe(df_user.head())
         except Exception as e:
-            st.error(f"Erro ao ler arquivo. Verifique se é um CSV válido. Detalhe: {e}")
-
+            st.error(f"Erro ao ler arquivo. Detalhe: {e}")
 else: 
-    st.markdown("Digite os códigos CATMAT. Você pode separar por **Enter**, **ponto e vírgula** ou **vírgula**.")
-    texto_input = st.text_area("Exemplo:\n12345\n67890; 455321, 998877", height=150)
-    
+    texto_input = st.text_area("Digite os códigos CATMAT. (Separe por Enter, ponto e vírgula ou vírgula)", height=150)
     if texto_input:
         lista_catmats = re.split(r'[;,\n\s]+', texto_input)
-        
-        dados_virtuais = []
-        contador_item = 1
-        
-        for codigo in lista_catmats:
-            codigo_limpo = codigo.strip()
-            if codigo_limpo: 
-                dados_virtuais.append({
-                    'ITEM': contador_item,
-                    'CATMAT': codigo_limpo,
-                    'Descrição do Item': 'Item Manual' 
-                })
-                contador_item += 1
-        
+        dados_virtuais = [{'ITEM': i+1, 'CATMAT': c.strip(), 'Descrição do Item': 'Item Manual'} for i, c in enumerate(lista_catmats) if c.strip()]
         if dados_virtuais:
             df_user = pd.DataFrame(dados_virtuais)
             st.info(f"Reconhecidos {len(df_user)} códigos para processamento.")
-        else:
-            st.warning("Nenhum código válido identificado.")
 
 # --- BOTÃO DE PROCESSAMENTO ---
 
@@ -301,43 +305,34 @@ if st.button("🚀 Processar Dados"):
                 sucesso_gerado = False
                 df_excecoes_total = df_excecoes_etapa1.copy() if df_excecoes_etapa1 is not None else pd.DataFrame()
                 
-                # --- APLICA A ETAPA 2 (SOMENTE ITENS COM MARGEM E BUSCA 8/4 DÍGITOS) ---
                 if df_intermed is not None and not df_intermed.empty:
-                    df_final, df_excecoes_etapa2 = etapa2_filtrar_margem_ncm(df_intermed, df_ref_anexo)
+                    df_final, df_excecoes_etapa2 = etapa2_filtrar_anexo_ncm(df_intermed, df_ref_anexo)
                     
                     if not df_excecoes_etapa2.empty:
+                        # Concatena sem correr risco de duplicar as colunas
                         df_excecoes_total = pd.concat([df_excecoes_total, df_excecoes_etapa2], ignore_index=True)
+                        df_excecoes_total = remover_colunas_duplicadas(df_excecoes_total)
 
                     if df_final is not None and not df_final.empty:
                         sucesso_gerado = True
-                        st.markdown("### ✅ Resultado Final Processado (Somente Itens com Margem)")
+                        st.markdown("### ✅ Resultado Final Processado")
                         st.dataframe(df_final, hide_index=True)
                         
                         csv = df_final.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
-                        st.download_button(
-                            label="📥 Baixar Resultado (.csv)",
-                            data=csv,
-                            file_name="resultado_processado.csv",
-                            mime="text/csv"
-                        )
+                        st.download_button(label="📥 Baixar Resultado (.csv)", data=csv, file_name="resultado_processado.csv", mime="text/csv")
                     else:
                         st.warning("Nenhum item processado atende aos critérios de possuir margem no Anexo 01.")
                 
                 # --- EXIBIÇÃO: EXCEÇÕES ---
                 if not df_excecoes_total.empty:
                     st.divider()
-                    st.warning(f"⚠️ Relatório de Exceções: {len(df_excecoes_total)} itens não processados (Sem CATMAT, Sem NCM ou Sem Margem).")
+                    st.warning(f"⚠️ Relatório de Exceções: {len(df_excecoes_total)} itens descartados (Sem CATMAT, NCM inválido, Sem Margem 'SIM' ou Não Localizado no Anexo).")
                     
                     with st.expander("Clique para visualizar a lista de exceções"):
                         st.dataframe(df_excecoes_total, hide_index=True)
                     
                     csv_excecoes = df_excecoes_total.to_csv(sep=';', index=False, encoding='utf-8-sig').encode('utf-8-sig')
-                    st.download_button(
-                        label="📥 Baixar Exceções (.csv)",
-                        data=csv_excecoes,
-                        file_name="relatorio_excecoes.csv",
-                        mime="text/csv"
-                    )
+                    st.download_button(label="📥 Baixar Exceções (.csv)", data=csv_excecoes, file_name="relatorio_excecoes.csv", mime="text/csv")
                 
                 if not sucesso_gerado and df_excecoes_total.empty:
                      st.error("Ocorreu um erro lógico: Nenhum dado de sucesso e nenhuma exceção foram gerados. Verifique as colunas dos arquivos.")
