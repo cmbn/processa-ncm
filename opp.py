@@ -10,7 +10,7 @@ st.set_page_config(page_title="Processador NCM", layout="wide")
 st.title("Processador de Arquivos NCM/CATMAT")
 st.markdown("""
 Este sistema processa arquivos CSV para vincular NCMs baseados no CATMAT.
-**Regra atual:** Seleciona apenas itens COM MARGEM, identificando o NCM no Anexo 01 pelo código completo (8 dígitos) ou pelos 4 dígitos iniciais.
+**Regra atual:** Seleciona apenas itens COM MARGEM (busca 8 ou 4 dígitos). Conta com busca inteligente de colunas para evitar erros de cabeçalho.
 """)
 
 # --- FUNÇÕES UTILITÁRIAS ---
@@ -18,7 +18,6 @@ Este sistema processa arquivos CSV para vincular NCMs baseados no CATMAT.
 def ler_csv_flexivel(arquivo, compression=None):
     """
     Tenta ler um arquivo CSV/ZIP testando diferentes encodings e separadores.
-    Suporte avançado a ZIPs contendo pastas e múltiplos formatos.
     """
     encodings = ['utf-8', 'latin-1', 'cp1252', 'utf-8-sig', 'iso-8859-1']
     separadores = [';', ',', '\t']
@@ -77,9 +76,6 @@ def ler_csv_flexivel(arquivo, compression=None):
 # --- FUNÇÕES DE PROCESSAMENTO ---
 
 def carregar_arquivo_referencia(nome_base, uploader_label):
-    """
-    Procura por arquivos locais (ZIP ou CSV) ou aceita upload, usando a leitura flexível.
-    """
     df = None
     if os.path.exists(f"{nome_base}.zip"):
         try:
@@ -105,22 +101,33 @@ def carregar_arquivo_referencia(nome_base, uploader_label):
     return df
 
 def etapa1_unir_por_catmat(df1, df2):
-    """
-    Realiza a junção por CATMAT. Separa o que tem NCM válido do que não tem.
-    """
     st.info("--- Iniciando Etapa 1: Junção por CATMAT ---")
     
+    # Limpa espaços extras nos nomes das colunas
     df1.columns = df1.columns.str.strip()
     df2.columns = df2.columns.str.strip()
     
-    if 'CATMAT' not in df1.columns or 'Código do Item' not in df2.columns:
-        st.error(f"Erro na Etapa 1: Colunas obrigatórias não encontradas.")
+    # --- BUSCA INTELIGENTE DE COLUNAS ---
+    # Encontra a coluna CATMAT no arquivo do usuário (ou pega a primeira coluna por padrão)
+    col_user = next((c for c in df1.columns if c.upper() in ['CATMAT', 'CÓDIGO', 'CODIGO', 'ITEM']), df1.columns[0])
+    
+    # Encontra a coluna de Código na Planilha CATMAT de Referência
+    col_ref = next((c for c in df2.columns if 'CÓDIGO DO ITEM' in c.upper() or 'CODIGO DO ITEM' in c.upper() or 'CATMAT' in c.upper() or 'ITEM' in c.upper()), None)
+
+    # Se não encontrar a coluna na referência, exibe os nomes para debug
+    if col_ref is None:
+        st.error("❌ Erro na Etapa 1: Não foi possível identificar a coluna de 'Código do Item' no arquivo de referência.")
+        st.warning(f"Colunas encontradas na Planilha CATMAT (Referência): {list(df2.columns)}")
+        st.warning(f"Colunas encontradas no seu arquivo: {list(df1.columns)}")
+        st.info("💡 Dica: Verifique se o arquivo CSV possui linhas em branco no topo antes do cabeçalho.")
         return None, None
 
-    df1['CATMAT'] = df1['CATMAT'].astype(str).str.strip()
-    df2['Código do Item'] = df2['Código do Item'].astype(str).str.strip()
+    # Padroniza como texto para evitar perda de zeros à esquerda
+    df1[col_user] = df1[col_user].astype(str).str.strip()
+    df2[col_ref] = df2[col_ref].astype(str).str.strip()
 
-    df_merged = pd.merge(df1, df2, left_on='CATMAT', right_on='Código do Item', how='left', indicator=True)
+    # Realiza a junção
+    df_merged = pd.merge(df1, df2, left_on=col_user, right_on=col_ref, how='left', indicator=True)
     
     # 1. Identificar CATMATs não encontrados
     mask_nao_encontrado = df_merged['_merge'] == 'left_only'
@@ -130,45 +137,51 @@ def etapa1_unir_por_catmat(df1, df2):
     # 2. Filtrar os encontrados para verificar NCM
     df_encontrados = df_merged[df_merged['_merge'] == 'both'].copy()
     
-    if 'Código NCM' in df_encontrados.columns:
+    # Busca inteligente pela coluna de NCM na referência
+    col_ncm_ref = next((c for c in df_encontrados.columns if 'NCM' in c.upper()), None)
+    
+    if col_ncm_ref is not None:
         mask_ncm_valido = (
-            df_encontrados['Código NCM'].notna() & 
-            (df_encontrados['Código NCM'] != '') & 
-            (df_encontrados['Código NCM'].str.strip() != '-')
+            df_encontrados[col_ncm_ref].notna() & 
+            (df_encontrados[col_ncm_ref] != '') & 
+            (df_encontrados[col_ncm_ref].str.strip() != '-')
         )
         df_sucesso = df_encontrados[mask_ncm_valido].copy()
         
         df_excecoes_ncm = df_encontrados[~mask_ncm_valido].copy()
         df_excecoes_ncm['Motivo_Excecao'] = 'NCM inválido ou ausente na referência (Sem Margem)'
+        
+        # Renomeia a coluna NCM achada para o padrão esperado pela Etapa 2
+        df_sucesso.rename(columns={col_ncm_ref: 'Código NCM'}, inplace=True)
+        df_excecoes_ncm.rename(columns={col_ncm_ref: 'Código NCM'}, inplace=True)
     else:
         df_sucesso = pd.DataFrame()
         df_excecoes_ncm = df_encontrados.copy()
-        df_excecoes_ncm['Motivo_Excecao'] = 'Coluna Código NCM inexistente na referência'
+        df_excecoes_ncm['Código NCM'] = ''
+        df_excecoes_ncm['Motivo_Excecao'] = 'Coluna de NCM inexistente na referência'
 
     df_excecoes_total = pd.concat([df_excecoes_catmat, df_excecoes_ncm])
     
-    cols_possiveis = ['ITEM', 'Descrição do Item', 'ESPECIFICAÇÃO', 'CATMAT', 'Código NCM', 'Motivo_Excecao']
+    # Seleção de colunas para exibir de forma limpa nas exceções
+    cols_possiveis = ['ITEM', 'Descrição do Item', 'ESPECIFICAÇÃO', col_user, 'Código NCM', 'Motivo_Excecao']
     cols_finais_excecao = [c for c in cols_possiveis if c in df_excecoes_total.columns]
     df_excecoes_final = df_excecoes_total[cols_finais_excecao]
 
-    colunas_sucesso = ['ITEM', 'Descrição do Item', 'CATMAT', 'Código NCM']
+    colunas_sucesso = ['ITEM', 'Descrição do Item', col_user, 'Código NCM']
     cols_existentes_sucesso = [c for c in colunas_sucesso if c in df_sucesso.columns]
     
-    st.write(f"Processamento inicial: {len(df_sucesso)} itens com NCM identificados para análise de margem.")
+    st.write(f"Processamento inicial: {len(df_sucesso)} itens com NCM identificados para análise de margem no Anexo 01.")
     
     return df_sucesso[cols_existentes_sucesso], df_excecoes_final
 
 def etapa2_filtrar_margem_ncm(df_etapa1, df3):
-    """
-    Busca o NCM no Anexo 01 pelo código completo ou 4 dígitos iniciais.
-    Seleciona apenas itens que tenham margem. O resto vira exceção.
-    """
     st.info("--- Iniciando Etapa 2: Identificação de Margem (NCM Completo ou 4 Dígitos) ---")
     
     df_etapa1['Código NCM'] = df_etapa1['Código NCM'].astype(str)
     
     df3.columns = df3.columns.str.strip()
-    col_ncm_anexo = 'NCM' if 'NCM' in df3.columns else df3.columns[0]
+    col_ncm_anexo = next((c for c in df3.columns if 'NCM' in c.upper()), df3.columns[0])
+    
     df3['chave_juncao'] = df3[col_ncm_anexo].astype(str).str.replace('.', '', regex=False).str.strip()
 
     cols_anexo_extras = [c for c in df3.columns if c not in [col_ncm_anexo, 'chave_juncao']]
@@ -191,12 +204,10 @@ def etapa2_filtrar_margem_ncm(df_etapa1, df3):
             match = df3[df3['chave_juncao'] == ncm_4_digitos]
             
         if not match.empty:
-            # Encontrou: tem margem. Adiciona dados do anexo ao item.
             for col in cols_anexo_extras:
                 item_dict[col] = match.iloc[0][col]
             itens_com_margem.append(item_dict)
         else:
-            # Não encontrou: não tem margem. Vai para exceção.
             item_dict['Motivo_Excecao'] = 'NCM não localizado no Anexo 01 (Sem Margem)'
             itens_sem_margem.append(item_dict)
 
@@ -286,23 +297,17 @@ if st.button("🚀 Processar Dados"):
     if df_user is not None and not df_user.empty:
         if df_ref_catmat is not None and df_ref_anexo is not None:
             try:
-                # --- Executa Processamento ---
                 df_intermed, df_excecoes_etapa1 = etapa1_unir_por_catmat(df_user, df_ref_catmat)
                 
                 sucesso_gerado = False
                 df_excecoes_total = df_excecoes_etapa1.copy() if df_excecoes_etapa1 is not None else pd.DataFrame()
                 
-                # --- APLICA A ETAPA 2 (SOMENTE ITENS COM MARGEM E BUSCA 8/4 DÍGITOS) ---
                 if df_intermed is not None and not df_intermed.empty:
                     df_final, df_excecoes_etapa2 = etapa2_filtrar_margem_ncm(df_intermed, df_ref_anexo)
                     
                     if not df_excecoes_etapa2.empty:
-                        # Seleciona as colunas de forma segura para não dar erro no concat
-                        cols_comuns = [c for c in df_excecoes_total.columns if c in df_excecoes_etapa2.columns]
-                        if not cols_comuns and not df_excecoes_total.empty:
-                           df_excecoes_total = pd.concat([df_excecoes_total, df_excecoes_etapa2], ignore_index=True)
-                        else:
-                           df_excecoes_total = pd.concat([df_excecoes_total, df_excecoes_etapa2], ignore_index=True)
+                        # Adiciona as exceções da Etapa 2 na lista de exceções total
+                        df_excecoes_total = pd.concat([df_excecoes_total, df_excecoes_etapa2], ignore_index=True)
 
                     if df_final is not None and not df_final.empty:
                         sucesso_gerado = True
